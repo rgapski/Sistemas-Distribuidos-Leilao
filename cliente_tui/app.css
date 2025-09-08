@@ -1,0 +1,26 @@
+/* /cliente_tui/app.css */
+
+#app-grid {
+    layout: vertical;
+    overflow: auto;
+}
+
+#log_leiloes {
+    height: 80%; /* O log ocupa a maior parte da tela */
+    border: round white;
+}
+
+#input-container {
+    height: 20%;
+    align: center middle;
+}
+
+Input {
+    width: 30%;
+    margin: 1 2;
+}
+
+Button {
+    width: 20%;
+    margin: 1 2;
+}
