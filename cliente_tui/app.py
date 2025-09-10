@@ -8,7 +8,6 @@ from datetime import datetime
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, RichLog, Input, Button, Static
 from textual.containers import Horizontal, Vertical
-from textual.worker import get_current_worker
 from textual import work, on
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -101,7 +100,7 @@ class LeilaoConsumerApp(App):
 
         dados_lance = {
             "id_leilao": leilao_id,
-            "id_usuario": self.usuario_id, # <-- MUDANÇA AQUI
+            "id_usuario": self.usuario_id,
             "valor": valor,
         }
         
@@ -168,7 +167,7 @@ class LeilaoConsumerApp(App):
             channel.start_consuming()
 
         except Exception as e:
-            self.call_from_thread(self.log_widget.write_line, f"[bold red]Erro (worker leilões): {e}[/bold red]")
+            self.call_from_thread(self.log_widget.write, f"[bold red]Erro (worker leilões): {e}[/bold red]")
 
     @work(thread=True)
     def consume_notificacoes(self, leilao_id: int) -> None:
@@ -184,30 +183,30 @@ class LeilaoConsumerApp(App):
             channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type='topic')
             result = channel.queue_declare(queue='', exclusive=True)
             queue_name = result.method.queue
-            
-            # --- A MÁGICA DO WILDCARD ---
-            # O padrão 'notificacao.*.1' vai capturar:
-            # - notificacao.lance.1
-            # - notificacao.vencedor.1
-            # - e qualquer outro tipo de notificação futura para o leilão 1.
+
             binding_key = f"notificacao.*.{leilao_id}"
             
             channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=binding_key)
             
-            def callback(ch, method, properties, body):
+            def callback(ch, method, body):
                 notificacao = json.loads(body.decode())
                 log_message = ""
                 
                 # Usamos a routing_key para saber que tipo de notificação é
                 if method.routing_key.startswith('notificacao.vencedor'):
-                    log_message = f"[bold magenta]Leilão {leilao_id} Encerrado![/bold magenta]\n  [b]Vencedor:[/b] {notificacao['vencedor']}\n  [b]Valor Final:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                    # Formata a mensagem de vencedor
+                    if notificacao['vencedor'] == self.usuario_id:
+                        log_message = f"[bold green]Parabéns! Você venceu o leilão {leilao_id}![/bold green]\n  [b]Valor Final:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                    else:
+                        log_message = f"[bold magenta]Leilão {leilao_id} Encerrado![/bold magenta]\n  [b]Vencedor:[/b] {notificacao['vencedor']}\n  [b]Valor Final:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+
                 else: # Assume que é uma notificação de lance
-                    # Não mostra notificação do próprio lance para não poluir a tela
+                    # Se o lance validado for do próprio usuário, mostra uma confirmação especial
                     if notificacao['id_usuario'] == self.usuario_id:
-                        ch.basic_ack(delivery_tag=method.delivery_tag)
-                        return
-                        
-                    log_message = f"[cyan]Lance no leilão {leilao_id}![/cyan]\n  [b]Usuário:[/b] {notificacao['id_usuario']} | [b]Valor:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                        log_message = f"[bold green]Seu lance de R$ {notificacao['valor']:.2f} foi aceito como o mais alto no leilão {leilao_id}![/bold green]\n--------------------"
+                    else:
+                    # Se for de outro usuário, mostra a notificação padrão
+                        log_message = f"[cyan]Lance no leilão {leilao_id}![/cyan]\n  [b]Usuário:[/b] {notificacao['id_usuario']} | [b]Valor:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
                 
                 self.call_from_thread(self.log_widget.write, log_message)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -224,9 +223,6 @@ class LeilaoConsumerApp(App):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cliente TUI para o sistema de leilão.")
     parser.add_argument("usuario", type=str, help="O ID do usuário para este cliente (ex: cliente_alpha).")
-    
     args = parser.parse_args()
-    
-    # Inicia a aplicação passando o ID do usuário
     app = LeilaoConsumerApp(usuario_id=args.usuario)
     app.run()

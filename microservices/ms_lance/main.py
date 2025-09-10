@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 RABBITMQ_HOST = 'localhost'
 RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
-PUBLIC_KEYS_DIR = '.' # Diretório onde as chaves públicas estão
+PUBLIC_KEYS_DIR = 'cliente_tui' # Diretório onde as chaves públicas estão
 EXCHANGE_NAME = 'leilao_topic_exchange'
 BINDING_KEYS = ['leilao.iniciado', 'leilao.finalizado', 'lance.realizado'] # Tópicos que este MS escuta
 
