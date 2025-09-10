@@ -41,5 +41,5 @@ def gerar_e_salvar_chaves(usuario_id: str):
     print(f" - Chave Pública:  {usuario_id}_public_key.pem")
 
 if __name__ == "__main__":
-    # Vamos criar chaves para um usuário chamado 'cliente_alpha'
-    gerar_e_salvar_chaves("cliente_alpha")
+    # Vamos criar chaves para um usuário chamado 'cliente_beta'
+    gerar_e_salvar_chaves("cliente_beta")
