@@ -3,17 +3,24 @@
 import pika
 import json
 import os
+import threading
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.exceptions import InvalidSignature
 
 # --- Configurações ---
 RABBITMQ_HOST = 'localhost'
-LANCES_QUEUE = 'lance_realizado'
-PUBLIC_KEYS_DIR = '.' # O diretório onde as chaves públicas estão
+RABBITMQ_USER = 'user'
+RABBITMQ_PASS = 'password'
+PUBLIC_KEYS_DIR = '.'
+QUEUES_TO_CONSUME = ['lance_realizado', 'leilao_iniciado'] # Adicionaremos 'leilao_finalizado' depois
+LANCE_VALIDADO_QUEUE = 'lance_validado'
+
+# --- Estado Interno do Microsserviço ---
+leiloes_ativos = {}
+chaves_publicas = {}
 
 # --- Lógica de Negócio ---
-chaves_publicas = {}
 
 def carregar_chaves_publicas():
     """Carrega todas as chaves públicas .pem do diretório configurado."""
@@ -30,79 +37,108 @@ def carregar_chaves_publicas():
             except Exception as e:
                 print(f"  - Falha ao carregar chave de '{usuario_id}': {e}")
 
-def verificar_lance(payload: dict) -> bool:
-    """Verifica a assinatura digital de um lance."""
+def processar_lance_realizado(ch, method, properties, body):
+    #... (lógica completa de validação)
+    print("\n[lance_realizado] Lance recebido.")
+    payload = json.loads(body.decode())
+    dados = payload.get('dados', {})
+    if not verificar_assinatura(payload):
+        print("  --> Lance Descartado: Assinatura Inválida."); ch.basic_ack(delivery_tag=method.delivery_tag); return
+    leilao_id = dados.get('id_leilao')
+    if leilao_id not in leiloes_ativos or leiloes_ativos[leilao_id]['status'] != 'ativo':
+        print(f"  --> Lance Descartado: Leilão {leilao_id} não está ativo."); ch.basic_ack(delivery_tag=method.delivery_tag); return
+    valor_lance = dados.get('valor', 0)
+    if valor_lance <= leiloes_ativos[leilao_id]['maior_lance']:
+        print(f"  --> Lance Descartado: Valor não é maior."); ch.basic_ack(delivery_tag=method.delivery_tag); return
+    
+    print(f"  [✓] Lance VÁLIDO para o leilão {leilao_id}.")
+    leiloes_ativos[leilao_id]['maior_lance'] = valor_lance
+    leiloes_ativos[leilao_id]['vencedor'] = dados.get('id_usuario')
+    publicar_evento('lance_validado', dados)
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+def processar_leilao_iniciado(ch, method, properties, body):
+    leilao = json.loads(body.decode()); leilao_id = leilao.get('id_leilao')
+    if leilao_id:
+        leiloes_ativos[leilao_id] = {"maior_lance": 0, "vencedor": None, "status": "ativo"}
+        print(f"\n[leilao_iniciado] Leilão {leilao_id} ATIVO.")
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+def processar_leilao_finalizado(ch, method, properties, body):
+    leilao = json.loads(body.decode()); leilao_id = leilao.get('id_leilao')
+    if leilao_id in leiloes_ativos:
+        leiloes_ativos[leilao_id]['status'] = 'encerrado'
+        vencedor = leiloes_ativos[leilao_id]['vencedor']
+        valor = leiloes_ativos[leilao_id]['maior_lance']
+        print(f"\n[leilao_finalizado] Leilão {leilao_id} ENCERRADO. Vencedor: {vencedor} com R${valor}")
+        if vencedor:
+            publicar_evento('leilao_vencedor', {"id_leilao": leilao_id, "vencedor": vencedor, "valor": valor})
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+def verificar_assinatura(payload: dict) -> bool:
+    #... (igual à versão anterior)
     try:
-        dados = payload['dados']
-        assinatura_hex = payload['assinatura']
-        assinatura_bytes = bytes.fromhex(assinatura_hex)
-        
-        usuario_id = dados['id_usuario']
-        
-        # 1. Encontrar a chave pública do usuário
+        dados = payload['dados']; assinatura_hex = payload['assinatura']
+        assinatura_bytes = bytes.fromhex(assinatura_hex); usuario_id = dados['id_usuario']
         public_key = chaves_publicas.get(usuario_id)
-        if not public_key:
-            print(f"  [!] Assinatura inválida: Chave pública para '{usuario_id}' não encontrada.")
-            return False
-            
-        # 2. Preparar a mensagem original
+        if not public_key: return False
         mensagem_bytes = json.dumps(dados, sort_keys=True).encode('utf-8')
-
-        # 3. Verificar a assinatura
-        public_key.verify(
-            assinatura_bytes,
-            mensagem_bytes,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        print("  [✓] Assinatura VÁLIDA.")
+        public_key.verify(assinatura_bytes, mensagem_bytes, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())
         return True
+    except: return False
 
-    except InvalidSignature:
-        print("  [!] Assinatura INVÁLIDA: A assinatura não corresponde aos dados.")
-        return False
-    except (KeyError, ValueError) as e:
-        print(f"  [!] Formato de mensagem inválido: {e}")
-        return False
+def publicar_lance_validado(dados_lance: dict):
+    """Publica a mensagem na fila 'lance_validado'."""
+    try:
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST, port=15672, credentials=credentials))
+        channel = connection.channel()
+        channel.queue_declare(queue=LANCE_VALIDADO_QUEUE, durable=True)
+        channel.basic_publish(
+            exchange='',
+            routing_key=LANCE_VALIDADO_QUEUE,
+            body=json.dumps(dados_lance),
+            properties=pika.BasicProperties(delivery_mode=2)
+        )
+        print(f"  --> Evento publicado em '{LANCE_VALIDADO_QUEUE}'.")
+        connection.close()
+    except pika.exceptions.AMQPConnectionError as e:
+        print(f"  [!] Erro ao publicar lance validado: {e}")
 
-# --- Conexão RabbitMQ ---
+def start_consumer(queue_name: str, callback_func):
+    #... (igual à versão anterior)
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+    channel = connection.channel()
+    channel.queue_declare(queue=queue_name, durable=True)
+    channel.basic_consume(queue=queue_name, on_message_callback=callback_func)
+    print(f'[*] Consumidor iniciado para a fila "{queue_name}".')
+    channel.start_consuming()
+
+def publicar_evento(queue_name: str, evento: dict):
+    #... (função auxiliar para publicar, igual à do ms_leilao)
+    try:
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST, credentials=credentials))
+        channel = connection.channel()
+        channel.queue_declare(queue=queue_name, durable=True)
+        channel.basic_publish(exchange='', routing_key=queue_name, body=json.dumps(evento), properties=pika.BasicProperties(delivery_mode=2))
+        print(f"  --> Evento publicado em '{queue_name}'.")
+        connection.close()
+    except pika.exceptions.AMQPConnectionError as e:
+        print(f"  [!] Erro ao publicar evento: {e}")
+
 def main():
     carregar_chaves_publicas()
-    
-    try:
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-        channel = connection.channel()
-        channel.queue_declare(queue=LANCES_QUEUE, durable=True)
-
-        def callback(ch, method, properties, body):
-            print(f"\n[x] Lance recebido de '{LANCES_QUEUE}':")
-            payload = json.loads(body.decode())
-            print(json.dumps(payload, indent=2))
-            
-            # TODO: Aqui entrará a lógica completa de validação (leilão ativo, valor maior, etc.)
-            # Por enquanto, apenas verificamos a assinatura.
-            if verificar_lance(payload):
-                # Se for válido, futuramente publicaremos em 'lance_validado'
-                print("  --> Lance OK. (Próximo passo: publicar validação)")
-            else:
-                print("  --> Lance Descartado.")
-                
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-
-        channel.basic_consume(queue=LANCES_QUEUE, on_message_callback=callback)
-
-        print(f'[*] MS Lance aguardando lances na fila "{LANCES_QUEUE}". Para sair, pressione CTRL+C')
-        channel.start_consuming()
-    
-    except pika.exceptions.AMQPConnectionError as e:
-        print(f"Erro ao conectar ao RabbitMQ: {e}")
+    callbacks = {
+        'lance_realizado': processar_lance_realizado,
+        'leilao_iniciado': processar_leilao_iniciado,
+        'leilao_finalizado': processar_leilao_finalizado
+    }
+    threads = [threading.Thread(target=start_consumer, args=(q, cb)) for q, cb in callbacks.items()]
+    for t in threads: t.start()
+    print("MS Lance iniciado.")
+    for t in threads: t.join()
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        print('Interrompido')
-        exit(0)
+    main()

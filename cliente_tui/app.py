@@ -3,7 +3,6 @@
 import pika
 import json
 from textual.app import App, ComposeResult
-# MUDANÇA 1: Importar RichLog em vez de Log e Static
 from textual.widgets import Header, Footer, RichLog, Input, Button
 from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
@@ -14,6 +13,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 # --- Configurações ---
 RABBITMQ_HOST = 'localhost'
+RABBITMQ_USER = 'user'
+RABBITMQ_PASS = 'password'
 LEILOES_QUEUE = 'leilao_iniciado'
 LANCES_QUEUE = 'lance_realizado'
 USUARIO_ID = 'cliente_alpha'  # Identificador do nosso cliente
@@ -27,7 +28,8 @@ class LeilaoConsumerApp(App):
 
     def __init__(self):
         super().__init__()
-        self.leiloes_ativos = {} # Dicionário para guardar leilões ativos
+        self.leiloes_ativos = {}
+        self.inscricoes = set()  # Conjunto para guardar leilões ativos
         # Carrega a chave privada ao iniciar
         try:
             with open(PRIVATE_KEY_FILE, "rb") as key_file:
@@ -76,11 +78,10 @@ class LeilaoConsumerApp(App):
         """Chamado quando o botão 'Dar Lance' é pressionado."""
         leilao_id_input = self.query_one("#input_leilao_id")
         valor_input = self.query_one("#input_valor")
-        leilao_id_str = leilao_id_input.value
-        valor_str = valor_input.value
+        leilao_id_str = self.query_one("#input_leilao_id").value
+        valor_str = self.query_one("#input_valor").value
 
         if not leilao_id_str or not valor_str:
-            # MUDANÇA 3: Usar .write()
             self.log_widget.write("[bold red]ERRO: Preencha o ID do Leilão e o Valor.[/bold red]")
             return
 
@@ -88,10 +89,13 @@ class LeilaoConsumerApp(App):
             leilao_id = int(leilao_id_str)
             valor = float(valor_str)
         except ValueError:
-            # MUDANÇA 3: Usar .write()
             self.log_widget.write("[bold red]ERRO: ID do Leilão e Valor devem ser números.[/bold red]")
             return
-            
+        
+        if leilao_id not in self.inscricoes:
+            self.consume_notificacoes(leilao_id)
+            self.inscricoes.add(leilao_id)
+
         dados_lance = {
             "id_leilao": leilao_id,
             "id_usuario": USUARIO_ID,
@@ -107,7 +111,8 @@ class LeilaoConsumerApp(App):
 
         # Publicar no RabbitMQ (idealmente, isso também deveria ser em um worker)
         try:
-            connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST, credentials=credentials))
             channel = connection.channel()
             channel.queue_declare(queue=LANCES_QUEUE, durable=True)
             channel.basic_publish(
@@ -117,14 +122,11 @@ class LeilaoConsumerApp(App):
                 properties=pika.BasicProperties(delivery_mode=2)
             )
             connection.close()
-            # MUDANÇA 3: Usar .write()
             self.log_widget.write(f"[yellow]Lance de R${valor:.2f} enviado para o leilão {leilao_id}. Aguardando validação...[/yellow]")
-            # Limpa os inputs após o envio
             leilao_id_input.value = ""
             valor_input.value = ""
             leilao_id_input.focus()
         except pika.exceptions.AMQPConnectionError as e:
-            # MUDANÇA 3: Usar .write()
             self.log_widget.write(f"[bold red]Erro ao enviar lance: Não foi possível conectar ao RabbitMQ. {e}[/bold red]")
 
     @work(exclusive=True, thread=True)
@@ -132,7 +134,8 @@ class LeilaoConsumerApp(App):
         """Consome a fila 'leilao_iniciado'."""
         worker = get_current_worker()
         try:
-            connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
             channel = connection.channel()
             channel.queue_declare(queue=LEILOES_QUEUE, durable=True)
 
@@ -148,18 +151,39 @@ class LeilaoConsumerApp(App):
 --------------------"""
                 
                 if not worker.is_cancelled:
-                    # MUDANÇA 3: Usar .write()
                     self.call_from_thread(self.log_widget.write, log_message)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
             channel.basic_consume(queue=LEILOES_QUEUE, on_message_callback=callback)
-            # MUDANÇA 3: Usar .write()
+            
             self.call_from_thread(self.log_widget.write, f"[*] Conectado à fila '{LEILOES_QUEUE}'.")
             channel.start_consuming()
 
         except pika.exceptions.AMQPConnectionError as e:
-            # MUDANÇA 3: Usar .write()
             self.call_from_thread(self.log_widget.write, f"[bold red]Erro de conexão (Leilões): {e}[/bold red]")
+            self.call_from_thread(self.log_widget.write, f"[bold red]Erro de conexão (Leilões): {e}[/bold red]")
+
+    @work(thread=True)
+    def consume_notificacoes(self, leilao_id: int) -> None:
+        q_name = f"leilao_{leilao_id}"
+        try:
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST, credentials=credentials))
+            channel = connection.channel()
+            channel.queue_declare(queue=q_name, durable=True)
+            def callback(ch, method, properties, body):
+                notificacao = json.loads(body.decode()); log_message = ""
+                if 'vencedor' in notificacao: # Mensagem de vencedor
+                    log_message = f"[bold magenta]Leilão {leilao_id} Encerrado![/bold magenta]\n  [b]Vencedor:[/b] {notificacao['vencedor']}\n  [b]Valor Final:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                else: # Mensagem de novo lance
+                    log_message = f"[cyan]Lance no leilão {leilao_id}![/cyan]\n  [b]Usuário:[/b] {notificacao['id_usuario']} | [b]Valor:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                self.call_from_thread(self.log_widget.write, log_message)
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+            channel.basic_consume(queue=q_name, on_message_callback=callback)
+            self.call_from_thread(self.log_widget.write, f"[*] Inscrito no leilão {leilao_id}.")
+            channel.start_consuming()
+        except Exception as e:
+            self.call_from_thread(self.log_widget.write, f"[bold red]Erro (notificações {leilao_id}): {e}[/bold red]")
 
     def action_toggle_dark(self) -> None:
         self.dark = not self.dark

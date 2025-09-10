@@ -3,55 +3,65 @@
 import pika
 import json
 import time
-import datetime
+from datetime import datetime, timedelta
 
 # --- Configurações ---
 RABBITMQ_HOST = 'localhost'
+RABBITMQ_USER = 'user'
+RABBITMQ_PASS = 'password'
 QUEUE_NAME = 'leilao_iniciado'
 
 # --- Dados Fictícios de Leilão ---
-leilao_exemplo = {
-    "id_leilao": 1,
-    "descricao": "Notebook Gamer de Última Geração",
-    "inicio": (datetime.datetime.now() + datetime.timedelta(seconds=5)).isoformat(),
-    "fim": (datetime.datetime.now() + datetime.timedelta(minutes=10)).isoformat()
-}
+# Lista de leilões pré-configurada
+LEILOES = [
+    {"id_leilao": 1, "descricao": "Notebook Gamer", "inicio": datetime.now() + timedelta(seconds=5), "fim": datetime.now() + timedelta(minutes=2), "status": "agendado"},
+    {"id_leilao": 2, "descricao": "Smartphone 5G", "inicio": datetime.now() + timedelta(seconds=15), "fim": datetime.now() + timedelta(minutes=3), "status": "agendado"},
+]
 
-def conectar_e_publicar():
-    """Conecta ao RabbitMQ e publica uma mensagem."""
+def publicar_evento(queue_name: str, evento: dict):
     try:
-        # Conexão com o RabbitMQ
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
-        channel = connection.channel()
-
-        # Declara a fila (garante que ela exista)
-        # durable=True faz a fila sobreviver a reinicializações do RabbitMQ
-        channel.queue_declare(queue=QUEUE_NAME, durable=True)
-
-        # Converte o dicionário Python para uma string JSON
-        mensagem = json.dumps(leilao_exemplo)
-
-        # Publica a mensagem na fila
-        channel.basic_publish(
-            exchange='',          # Exchange padrão
-            routing_key=QUEUE_NAME, # O nome da fila
-            body=mensagem,
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # Torna a mensagem persistente
-            ))
         
-        print(f" [x] Enviado para a fila '{QUEUE_NAME}': {mensagem}")
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+        channel = connection.channel()
+        channel.queue_declare(queue=queue_name, durable=True)
+        
+        # Converte datas para string antes de serializar
+        evento_serializavel = evento.copy()
+        for key, value in evento_serializavel.items():
+            if isinstance(value, datetime):
+                evento_serializavel[key] = value.isoformat()
 
-        # Fecha a conexão
+        channel.basic_publish(
+            exchange='',
+            routing_key=queue_name,
+            body=json.dumps(evento_serializavel),
+            properties=pika.BasicProperties(delivery_mode=2)
+        )
+        print(f" [x] Evento publicado na fila '{queue_name}': {evento['id_leilao']}")
         connection.close()
-
     except pika.exceptions.AMQPConnectionError as e:
-        print(f"Erro ao conectar ao RabbitMQ: {e}")
-        print("Verifique se o container do RabbitMQ está rodando. ('docker-compose up -d')")
+        print(f"Erro de conexão com RabbitMQ: {e}")
+
+def main():
+    print("MS Leilão iniciado. Monitorando agendamentos...")
+    while True:
+        agora = datetime.now()
+        for leilao in LEILOES:
+            # Inicia leilão
+            if leilao['status'] == 'agendado' and agora >= leilao['inicio']:
+                leilao['status'] = 'ativo'
+                publicar_evento('leilao_iniciado', leilao)
+            
+            # Finaliza leilão
+            if leilao['status'] == 'ativo' and agora >= leilao['fim']:
+                leilao['status'] = 'encerrado'
+                publicar_evento('leilao_finalizado', {"id_leilao": leilao['id_leilao']})
+
+        time.sleep(1) # Verifica a cada segundo
 
 if __name__ == '__main__':
-    print("MS Leilão iniciado. Publicando um novo leilão em 5 segundos...")
-    time.sleep(5) # Simula o tempo até o início do leilão
-    
-    conectar_e_publicar()
-    print("Mensagem publicada. O serviço será encerrado.")
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('MS Leilão encerrado.')
