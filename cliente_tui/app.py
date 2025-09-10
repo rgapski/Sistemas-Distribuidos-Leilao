@@ -2,9 +2,11 @@
 
 import pika
 import json
+import argparse
+from pathlib import Path
 from datetime import datetime
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, RichLog, Input, Button
+from textual.widgets import Header, Footer, RichLog, Input, Button, Static
 from textual.containers import Horizontal, Vertical
 from textual.worker import get_current_worker
 from textual import work, on
@@ -19,7 +21,8 @@ EXCHANGE_NAME = 'leilao_topic_exchange'
 LANCES_ROUTING_KEY = 'lance.realizado'  # Chave para publicar lances na exchange
 USUARIO_ID = 'cliente_alpha'  # Identificador do nosso cliente
 PRIVATE_KEY_FILE = f'{USUARIO_ID}_private_key.pem'
-
+SCRIPT_DIR = Path(__file__).parent
+CSS_PATH = SCRIPT_DIR / "app.css"
 
 class LeilaoConsumerApp(App):
     """Uma aplicação Textual para participar de leilões em tempo real."""
@@ -27,22 +30,24 @@ class LeilaoConsumerApp(App):
     BINDINGS = [("d", "toggle_dark", "Alternar Modo Escuro")]
     CSS_PATH = "app.css"
 
-    def __init__(self):
+    def __init__(self, usuario_id: str):
         super().__init__()
+        self.usuario_id = usuario_id # Armazena o ID do usuário na instância
         self.inscricoes = set()  # Conjunto para guardar leilões que o cliente participa
+        private_key_file = SCRIPT_DIR / f'{self.usuario_id}_private_key.pem'
         try:
-            with open(PRIVATE_KEY_FILE, "rb") as key_file:
-                self.private_key = serialization.load_pem_private_key(
-                    key_file.read(),
-                    password=None,
-                )
+            with open(private_key_file, "rb") as key_file:
+                self.private_key = serialization.load_pem_private_key(key_file.read(), password=None)
         except FileNotFoundError:
-            print(f"ERRO: Chave privada '{PRIVATE_KEY_FILE}' não encontrada. Execute 'gerar_chaves.py' primeiro.")
+            print(f"ERRO: Chave privada para o usuário '{self.usuario_id}' não encontrada em '{private_key_file}'.")
+            print("Verifique se você executou 'gerar_chaves.py' para este usuário.")
+            input("Pressione Enter para sair.")
             self.exit()
             
     def compose(self) -> ComposeResult:
         """Cria os widgets da interface."""
-        yield Header(show_clock=True)
+        yield Header(show_clock=True) 
+        yield Static(f"Usuário: [b]{self.usuario_id}[/b]", id="user-display") 
         with Vertical(id="app-grid"):
             yield RichLog(id="log_leiloes", auto_scroll=True, markup=True, highlight=True)
             with Horizontal(id="input-container"):
@@ -96,8 +101,8 @@ class LeilaoConsumerApp(App):
 
         dados_lance = {
             "id_leilao": leilao_id,
-            "id_usuario": USUARIO_ID,
-            "valor": valor
+            "id_usuario": self.usuario_id, # <-- MUDANÇA AQUI
+            "valor": valor,
         }
         
         assinatura_hex = self.assinar_mensagem(dados_lance)
@@ -167,36 +172,61 @@ class LeilaoConsumerApp(App):
 
     @work(thread=True)
     def consume_notificacoes(self, leilao_id: int) -> None:
-        """Consome notificações (lances validados, vencedores) da fila específica do leilão."""
-        q_name = f"leilao_{leilao_id}"
+        """
+        Cria um consumidor para TODAS as notificações de um leilão específico
+        usando uma inscrição de tópico com wildcard.
+        """
         try:
             credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
             connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST, credentials=credentials))
             channel = connection.channel()
-            channel.queue_declare(queue=q_name, durable=True)
 
+            channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type='topic')
+            result = channel.queue_declare(queue='', exclusive=True)
+            queue_name = result.method.queue
+            
+            # --- A MÁGICA DO WILDCARD ---
+            # O padrão 'notificacao.*.1' vai capturar:
+            # - notificacao.lance.1
+            # - notificacao.vencedor.1
+            # - e qualquer outro tipo de notificação futura para o leilão 1.
+            binding_key = f"notificacao.*.{leilao_id}"
+            
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=binding_key)
+            
             def callback(ch, method, properties, body):
                 notificacao = json.loads(body.decode())
                 log_message = ""
-                # Mensagem de vencedor
-                if 'vencedor' in notificacao:
-                    log_message = f"[bold magenta]Leilão {leilao_id} Encerrado![/bold magenta]\n  [b]Vencedor:[/b] {notificacao['vencedor']}\n  [b]Valor Final:[/b] R$ {notificacao.get('valor', 0):.2f}\n--------------------"
-                # Mensagem de novo lance
-                else:
-                    log_message = f"[cyan]Novo lance no leilão {leilao_id}![/cyan]\n  [b]Usuário:[/b] {notificacao['id_usuario']} | [b]Valor:[/b] R$ {notificacao.get('valor', 0):.2f}\n--------------------"
+                
+                # Usamos a routing_key para saber que tipo de notificação é
+                if method.routing_key.startswith('notificacao.vencedor'):
+                    log_message = f"[bold magenta]Leilão {leilao_id} Encerrado![/bold magenta]\n  [b]Vencedor:[/b] {notificacao['vencedor']}\n  [b]Valor Final:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
+                else: # Assume que é uma notificação de lance
+                    # Não mostra notificação do próprio lance para não poluir a tela
+                    if notificacao['id_usuario'] == self.usuario_id:
+                        ch.basic_ack(delivery_tag=method.delivery_tag)
+                        return
+                        
+                    log_message = f"[cyan]Lance no leilão {leilao_id}![/cyan]\n  [b]Usuário:[/b] {notificacao['id_usuario']} | [b]Valor:[/b] R$ {notificacao['valor']:.2f}\n--------------------"
                 
                 self.call_from_thread(self.log_widget.write, log_message)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
-            channel.basic_consume(queue=q_name, on_message_callback=callback)
-            self.call_from_thread(self.log_widget.write, f"[*] Inscrito para receber notificações do leilão {leilao_id}.")
+            channel.basic_consume(queue=queue_name, on_message_callback=callback)
+            self.call_from_thread(self.log_widget.write, f"[*] Inscrito para notificações do leilão {leilao_id} (Padrão: {binding_key}).")
             channel.start_consuming()
         except Exception as e:
-            self.call_from_thread(self.log_widget.write, f"[bold red]Erro (worker notificações {leilao_id}): {e}[/bold red]")
+            self.call_from_thread(self.log_widget.write, f"[bold red]Erro (notificações {leilao_id}): {e}[/bold red]")
 
     def action_toggle_dark(self) -> None:
         self.dark = not self.dark
 
 if __name__ == "__main__":
-    app = LeilaoConsumerApp()
+    parser = argparse.ArgumentParser(description="Cliente TUI para o sistema de leilão.")
+    parser.add_argument("usuario", type=str, help="O ID do usuário para este cliente (ex: cliente_alpha).")
+    
+    args = parser.parse_args()
+    
+    # Inicia a aplicação passando o ID do usuário
+    app = LeilaoConsumerApp(usuario_id=args.usuario)
     app.run()

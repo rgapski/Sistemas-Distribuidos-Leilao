@@ -24,3 +24,9 @@ Button {
     width: 20%;
     margin: 1 2;
 }
+
+#user-display {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 1;
+}
