@@ -3,7 +3,7 @@ import threading
 import time
 import Pyro5.api
 import Pyro5.nameserver
-from Peer import Peer
+from peer import Peer
 
 def iniciar_servidor_nomes():
     """Tenta iniciar o servidor de nomes se não existir"""
