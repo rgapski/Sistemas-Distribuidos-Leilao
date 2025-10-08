@@ -104,6 +104,8 @@ def main():
     print("\nComandos disponíveis:")
     print("  teste <peer> <mensagem> - Envia mensagem de teste para outro peer")
     print("  peers - Lista peers conhecidos")
+    print("  descobrir - Força busca de peers")
+    print("  listar_ns - Lista todos os nomes no servidor de nomes")
     print("  sair - Encerra o peer")
     print()
     
@@ -125,6 +127,27 @@ def main():
             
             elif comando == "peers":
                 print(f"Peers conhecidos: {peer.listar_peers_conhecidos()}")
+            
+            elif comando == "descobrir":
+                print(f"Forçando descoberta de peers...")
+                for outro_peer in TODOS_PEERS:
+                    if outro_peer != nome_peer and outro_peer not in peer.peers:
+                        try:
+                            uri_outro = ns.lookup(outro_peer)
+                            proxy = Pyro5.api.Proxy(uri_outro)
+                            peer.registrar_peer(outro_peer, proxy)
+                        except Exception as e:
+                            print(f"Erro ao descobrir {outro_peer}: {e}")
+                print(f"Peers conhecidos agora: {peer.listar_peers_conhecidos()}")
+            
+            elif comando == "listar_ns":
+                print("Peers registrados no servidor de nomes:")
+                try:
+                    registrados = ns.list()
+                    for nome, uri in registrados.items():
+                        print(f"  {nome}: {uri}")
+                except Exception as e:
+                    print(f"Erro ao listar: {e}")
             
             elif comando == "teste":
                 if len(entrada) < 3:
