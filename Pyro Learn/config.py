@@ -19,3 +19,8 @@ TIMEOUT_PEDIDO_INDIVIDUAL = 5
 
 # Timeout geral em segundos para o processo de obter todas as permissões para a SC
 TIMEOUT_GERAL_PEDIDO = 10
+
+# Atraso aleatório em segundos antes de enviar uma resposta "OK".
+# Ajuda a simular condições de disputa de forma mais controlada.
+MIN_DELAY_RESPOSTA = 0.5  # segundos
+MAX_DELAY_RESPOSTA = 1.5  # segundos

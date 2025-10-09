@@ -4,10 +4,13 @@ import Pyro5.api
 import threading
 import time
 from threading import Timer
+import random
+
 
 # Importações dos novos arquivos
 from logic import RicartAgrawalaLogic
 import config
+
 
 @Pyro5.api.expose
 class Peer:
@@ -59,6 +62,7 @@ class Peer:
     def receber_pedido(self, timestamp_outro, nome_outro):
         print(f"[{self.nome}] Recebi pedido de {nome_outro} (ts={timestamp_outro})")
         
+
         # Verifica se o peer está ativo ANTES de processar a lógica
         if nome_outro not in self.peers_ativos:
             print(f"[{self.nome}] Ignorando pedido de {nome_outro} (peer não está ativo)")
@@ -67,7 +71,10 @@ class Peer:
         decisao = self.logica.receber_pedido(timestamp_outro, nome_outro)
         
         if decisao == "CONCEDER_AGORA":
+            delay = random.uniform(config.MIN_DELAY_RESPOSTA, config.MAX_DELAY_RESPOSTA)
             print(f"[{self.nome}] → Concedendo OK para {nome_outro}")
+            time.sleep(delay) # Adiciona o atraso
+
             try:
                 proxy = self.obter_proxy(nome_outro)
                 proxy.receber_resposta(self.nome)
