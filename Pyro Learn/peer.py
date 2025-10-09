@@ -28,7 +28,7 @@ class Peer:
         self.thread_descoberta = None  # Thread de descoberta contínua
         self.rodando = True  # Flag para controlar threads
         
-        # === NOVOS ATRIBUTOS PARA EXCLUSÃO MÚTUA ===
+        # === ATRIBUTOS PARA EXCLUSÃO MÚTUA ===
         self.estado = LIBERADO  # Estado atual do peer
         self.relogio_logico = 0  # Relógio lógico de Lamport
         self.meu_timestamp = None  # Timestamp do meu pedido atual
@@ -150,7 +150,7 @@ class Peer:
             nome_outro (str): Nome do peer que está pedindo
             
         Returns:
-            bool: True se concedeu permissão, False se adiou
+            str: Status da resposta
         """
         with self.lock:
             # Atualiza o relógio lógico (regra de Lamport)
@@ -158,10 +158,120 @@ class Peer:
             
             print(f"[{self.nome}] Recebi pedido de {nome_outro} (ts={timestamp_outro})")
             
+            conceder_agora = False
+            
             # CASO 1: Estou LIBERADO - concedo imediatamente
             if self.estado == LIBERADO:
                 print(f"[{self.nome}] → Concedendo OK para {nome_outro} (estou liberado)")
-                return True
+                conceder_agora = True
+            
+            # CASO 2: Estou DENTRO_DA_SC - guardo o pedido para responder depois
+            elif self.estado == DENTRO_DA_SC:
+                print(f"[{self.nome}] → Adiando resposta para {nome_outro} (estou usando a SC)")
+                self.fila_pedidos.append((timestamp_outro, nome_outro))
+                return "ADIADO"
+            
+            # CASO 3: Estou QUERENDO_ENTRAR - comparo timestamps
+            elif self.estado == QUERENDO_ENTRAR:
+                # Compara: (timestamp, nome) - menor tem prioridade
+                meu_pedido = (self.meu_timestamp, self.nome)
+                pedido_outro = (timestamp_outro, nome_outro)
+                
+                if meu_pedido < pedido_outro:
+                    # Meu pedido é mais antigo/prioritário - adio resposta
+                    print(f"[{self.nome}] → Adiando resposta para {nome_outro} (meu pedido é prioritário)")
+                    self.fila_pedidos.append((timestamp_outro, nome_outro))
+                    return "ADIADO"
+                else:
+                    # Pedido dele é prioritário - concedo imediatamente
+                    print(f"[{self.nome}] → Concedendo OK para {nome_outro} (pedido dele é prioritário)")
+                    conceder_agora = True
+        
+        # Se decidiu conceder, envia a resposta via receber_resposta (fora do lock)
+        if conceder_agora:
+            try:
+                proxy = self.obter_proxy(nome_outro)
+                proxy.receber_resposta(self.nome)
+                print(f"[{self.nome}] ✓ OK enviado para {nome_outro}")
+                return "OK_ENVIADO"
+            except Exception as e:
+                print(f"[{self.nome}] ✗ Erro ao enviar OK para {nome_outro}: {e}")
+                return "ERRO"
+        
+        return "ADIADO"
+    
+    def receber_resposta(self, nome_outro):
+        """
+        Método remoto: recebe uma resposta OK de outro peer.
+        
+        Args:
+            nome_outro (str): Nome do peer que concedeu permissão
+        """
+        with self.lock:
+            print(f"[{self.nome}] ✓ Recebi OK de {nome_outro}")
+            self.respostas_recebidas.add(nome_outro)
+            
+            # Verifica se já recebeu todas as respostas necessárias
+            peers_necessarios = set(self.peer_uris.keys())
+            total_necessario = len(peers_necessarios)
+            total_recebido = len(self.respostas_recebidas)
+            
+            print(f"[{self.nome}] Progresso: {total_recebido}/{total_necessario} respostas")
+            
+            if self.respostas_recebidas >= peers_necessarios:
+                print(f"[{self.nome}] 🎉 Recebi OK de TODOS! Liberando para entrar na SC.")
+                self.evento_liberado.set()  # Libera a thread que está esperando
+    
+    def solicitar_sc(self):
+        """
+        Método local: solicita acesso à Seção Crítica.
+        Bloqueia até conseguir permissão de todos os peers.
+        """
+        with self.lock:
+            if self.estado != LIBERADO:
+                print(f"[{self.nome}] Erro: já estou em outro estado ({self.estado})")
+                return False
+            
+            # Muda estado e prepara para solicitar
+            self.estado = QUERENDO_ENTRAR
+            self.relogio_logico += 1
+            self.meu_timestamp = self.relogio_logico
+            self.respostas_recebidas.clear()
+            self.evento_liberado.clear()
+            
+            print(f"\n[{self.nome}] {'='*50}")
+            print(f"[{self.nome}] SOLICITANDO ACESSO À SC (timestamp={self.meu_timestamp})")
+            print(f"[{self.nome}] {'='*50}")
+            
+            # Lista de peers para pedir permissão
+            peers_para_pedir = list(self.peer_uris.keys())
+            total_peers = len(peers_para_pedir)
+        
+        # Envia pedidos para todos (fora do lock para não travar)
+        print(f"[{self.nome}] Enviando pedidos para {total_peers} peers...")
+        for nome_peer in peers_para_pedir:
+            try:
+                proxy = self.obter_proxy(nome_peer)
+                resultado = proxy.receber_pedido(self.meu_timestamp, self.nome)
+                print(f"[{self.nome}] Resposta de {nome_peer}: {resultado}")
+            except Exception as e:
+                print(f"[{self.nome}] Erro ao pedir para {nome_peer}: {e}")
+        
+        # Aguarda todas as respostas
+        with self.lock:
+            respostas_atuais = len(self.respostas_recebidas)
+        
+        print(f"[{self.nome}] Aguardando respostas... ({respostas_atuais}/{total_peers})")
+        self.evento_liberado.wait()  # Bloqueia até receber todas
+        
+        # Entra na SC
+        with self.lock:
+            self.estado = DENTRO_DA_SC
+            print(f"\n[{self.nome}] {'='*50}")
+            print(f"[{self.nome}] 🔒 ENTREI NA SEÇÃO CRÍTICA!")
+            print(f"[{self.nome}] {'='*50}\n")
+        
+        return True
     
     def liberar_sc(self):
         """
@@ -214,93 +324,4 @@ class Peer:
                 "fila_pedidos": len(self.fila_pedidos),
                 "peers_conhecidos": len(self.peer_uris)
             }
-            
-            # CASO 2: Estou DENTRO_DA_SC - guardo o pedido para responder depois
-            if self.estado == DENTRO_DA_SC:
-                print(f"[{self.nome}] → Adiando resposta para {nome_outro} (estou usando a SC)")
-                self.fila_pedidos.append((timestamp_outro, nome_outro))
-                return False
-            
-            # CASO 3: Estou QUERENDO_ENTRAR - comparo timestamps
-            if self.estado == QUERENDO_ENTRAR:
-                # Compara: (timestamp, nome) - menor tem prioridade
-                meu_pedido = (self.meu_timestamp, self.nome)
-                pedido_outro = (timestamp_outro, nome_outro)
-                
-                if meu_pedido < pedido_outro:
-                    # Meu pedido é mais antigo/prioritário - adio resposta
-                    print(f"[{self.nome}] → Adiando resposta para {nome_outro} (meu pedido é prioritário)")
-                    self.fila_pedidos.append((timestamp_outro, nome_outro))
-                    return False
-                else:
-                    # Pedido dele é prioritário - concedo imediatamente
-                    print(f"[{self.nome}] → Concedendo OK para {nome_outro} (pedido dele é prioritário)")
-                    return True
-    
-    def receber_resposta(self, nome_outro):
-        """
-        Método remoto: recebe uma resposta OK de outro peer.
         
-        Args:
-            nome_outro (str): Nome do peer que concedeu permissão
-        """
-        with self.lock:
-            print(f"[{self.nome}] Recebi OK de {nome_outro}")
-            self.respostas_recebidas.add(nome_outro)
-            
-            # Verifica se já recebeu todas as respostas necessárias
-            peers_necessarios = set(self.peer_uris.keys())
-            if self.respostas_recebidas >= peers_necessarios:
-                print(f"[{self.nome}] ✓ Recebi OK de todos! Posso entrar na SC.")
-                self.evento_liberado.set()  # Libera a thread que está esperando
-    
-    def solicitar_sc(self):
-        """
-        Método local: solicita acesso à Seção Crítica.
-        Bloqueia até conseguir permissão de todos os peers.
-        """
-        with self.lock:
-            if self.estado != LIBERADO:
-                print(f"[{self.nome}] Erro: já estou em outro estado ({self.estado})")
-                return False
-            
-            # Muda estado e prepara para solicitar
-            self.estado = QUERENDO_ENTRAR
-            self.relogio_logico += 1
-            self.meu_timestamp = self.relogio_logico
-            self.respostas_recebidas.clear()
-            self.evento_liberado.clear()
-            
-            print(f"\n[{self.nome}] {'='*50}")
-            print(f"[{self.nome}] SOLICITANDO ACESSO À SC (timestamp={self.meu_timestamp})")
-            print(f"[{self.nome}] {'='*50}")
-            
-            # Lista de peers para pedir permissão
-            peers_para_pedir = list(self.peer_uris.keys())
-        
-        # Envia pedidos para todos (fora do lock para não travar)
-        for nome_peer in peers_para_pedir:
-            try:
-                proxy = self.obter_proxy(nome_peer)
-                concedeu = proxy.receber_pedido(self.meu_timestamp, self.nome)
-                
-                if concedeu:
-                    # Se concedeu imediatamente, registra a resposta
-                    with self.lock:
-                        self.respostas_recebidas.add(nome_peer)
-                        print(f"[{self.nome}] {nome_peer} concedeu OK imediatamente")
-            except Exception as e:
-                print(f"[{self.nome}] Erro ao pedir para {nome_peer}: {e}")
-        
-        # Aguarda todas as respostas
-        print(f"[{self.nome}] Aguardando respostas... ({len(self.respostas_recebidas)}/{len(peers_para_pedir)})")
-        self.evento_liberado.wait()  # Bloqueia até receber todas
-        
-        # Entra na SC
-        with self.lock:
-            self.estado = DENTRO_DA_SC
-            print(f"\n[{self.nome}] {'='*50}")
-            print(f"[{self.nome}] 🔒 ENTREI NA SEÇÃO CRÍTICA!")
-            print(f"[{self.nome}] {'='*50}\n")
-        
-        return True
