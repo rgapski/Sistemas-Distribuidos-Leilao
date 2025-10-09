@@ -131,11 +131,10 @@ def main():
             elif comando == "descobrir":
                 print(f"Forçando descoberta de peers...")
                 for outro_peer in TODOS_PEERS:
-                    if outro_peer != nome_peer and outro_peer not in peer.peers:
+                    if outro_peer != nome_peer and outro_peer not in peer.peer_uris:
                         try:
                             uri_outro = ns.lookup(outro_peer)
-                            proxy = Pyro5.api.Proxy(uri_outro)
-                            peer.registrar_peer(outro_peer, proxy)
+                            peer.registrar_peer(outro_peer, uri_outro)
                         except Exception as e:
                             print(f"Erro ao descobrir {outro_peer}: {e}")
                 print(f"Peers conhecidos agora: {peer.listar_peers_conhecidos()}")
@@ -157,12 +156,14 @@ def main():
                 peer_destino = entrada[1]
                 mensagem = entrada[2]
                 
-                if peer_destino not in peer.peers:
+                if peer_destino not in peer.peer_uris:
                     print(f"Erro: Peer '{peer_destino}' não encontrado!")
                     continue
                 
                 try:
-                    resposta = peer.peers[peer_destino].mensagem_teste(mensagem, nome_peer)
+                    # Cria um proxy fresco para esta chamada
+                    proxy_destino = peer.obter_proxy(peer_destino)
+                    resposta = proxy_destino.mensagem_teste(mensagem, nome_peer)
                     print(f"Resposta de {peer_destino}: {resposta}")
                 except Exception as e:
                     print(f"Erro ao comunicar com {peer_destino}: {e}")

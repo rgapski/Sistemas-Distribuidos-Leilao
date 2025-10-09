@@ -17,7 +17,7 @@ class Peer:
             nome (str): Nome do peer (ex: "PeerA", "PeerB")
         """
         self.nome = nome
-        self.peers = {}  # Dicionário para guardar referências aos outros peers
+        self.peer_uris = {}  # Dicionário para guardar URIs dos outros peers
         self.ns = None  # Referência ao servidor de nomes
         self.todos_peers = []  # Lista de todos os peers do sistema
         self.thread_descoberta = None  # Thread de descoberta contínua
@@ -53,11 +53,10 @@ class Peer:
         while self.rodando:
             novos_encontrados = []
             for outro_peer in self.todos_peers:
-                if outro_peer != self.nome and outro_peer not in self.peers:
+                if outro_peer != self.nome and outro_peer not in self.peer_uris:
                     try:
                         uri_outro = ns_local.lookup(outro_peer)
-                        proxy = Pyro5.api.Proxy(uri_outro)
-                        self.registrar_peer(outro_peer, proxy)
+                        self.registrar_peer(outro_peer, uri_outro)
                         novos_encontrados.append(outro_peer)
                     except:
                         pass  # Peer ainda não disponível
@@ -68,17 +67,32 @@ class Peer:
             
             time.sleep(3)  # Verifica a cada 3 segundos
     
-    def registrar_peer(self, nome_peer, proxy_peer):
+    def registrar_peer(self, nome_peer, uri_peer):
         """
-        Registra a referência (proxy) de outro peer.
+        Registra a URI de outro peer.
         
         Args:
             nome_peer (str): Nome do outro peer
-            proxy_peer: Objeto proxy PyRO para comunicação
+            uri_peer (str): URI do peer para comunicação
         """
-        if nome_peer not in self.peers:
-            self.peers[nome_peer] = proxy_peer
+        if nome_peer not in self.peer_uris:
+            self.peer_uris[nome_peer] = uri_peer
             print(f"[{self.nome}] ✓ Peer '{nome_peer}' conectado!")
+    
+    def obter_proxy(self, nome_peer):
+        """
+        Cria um proxy para comunicação com outro peer.
+        Cada chamada cria um novo proxy, seguro para usar em qualquer thread.
+        
+        Args:
+            nome_peer (str): Nome do peer
+            
+        Returns:
+            Proxy PyRO ou None se o peer não for conhecido
+        """
+        if nome_peer in self.peer_uris:
+            return Pyro5.api.Proxy(self.peer_uris[nome_peer])
+        return None
     
     def mensagem_teste(self, mensagem, remetente):
         """
@@ -101,7 +115,7 @@ class Peer:
         Returns:
             list: Lista com nomes dos peers conhecidos
         """
-        return list(self.peers.keys())
+        return list(self.peer_uris.keys())
     
     def parar(self):
         """
