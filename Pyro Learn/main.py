@@ -102,11 +102,14 @@ def main():
     print(f"{nome_peer} ESTÁ PRONTO!")
     print(f"{'='*50}")
     print("\nComandos disponíveis:")
-    print("  teste <peer> <mensagem> - Envia mensagem de teste para outro peer")
-    print("  peers - Lista peers conhecidos")
-    print("  descobrir - Força busca de peers")
-    print("  listar_ns - Lista todos os nomes no servidor de nomes")
-    print("  sair - Encerra o peer")
+    print("  pedir       - Solicita acesso à Seção Crítica")
+    print("  liberar     - Libera a Seção Crítica")
+    print("  status      - Mostra o estado atual do peer")
+    print("  teste <peer> <mensagem> - Envia mensagem de teste")
+    print("  peers       - Lista peers conhecidos")
+    print("  descobrir   - Força busca de peers")
+    print("  listar_ns   - Lista todos os nomes no servidor de nomes")
+    print("  sair        - Encerra o peer")
     print()
     
     # Loop de comandos
@@ -124,6 +127,25 @@ def main():
                 peer.parar()  # Para as threads
                 ns.remove(nome_peer)
                 break
+            
+            elif comando == "pedir":
+                # Executa em uma thread separada para não travar a interface
+                threading.Thread(target=peer.solicitar_sc, daemon=True).start()
+            
+            elif comando == "liberar":
+                peer.liberar_sc()
+            
+            elif comando == "status":
+                estado = peer.obter_estado()
+                print(f"\n{'='*40}")
+                print(f"Estado de {estado['nome']}:")
+                print(f"  Estado atual: {estado['estado']}")
+                print(f"  Relógio lógico: {estado['relogio']}")
+                print(f"  Timestamp pedido: {estado['timestamp_pedido']}")
+                print(f"  Respostas recebidas: {estado['respostas']}")
+                print(f"  Pedidos na fila: {estado['fila_pedidos']}")
+                print(f"  Peers conhecidos: {estado['peers_conhecidos']}")
+                print(f"{'='*40}\n")
             
             elif comando == "peers":
                 print(f"Peers conhecidos: {peer.listar_peers_conhecidos()}")
