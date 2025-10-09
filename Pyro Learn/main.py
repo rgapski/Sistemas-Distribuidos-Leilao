@@ -145,10 +145,20 @@ def main():
                 print(f"  Respostas recebidas: {estado['respostas']}")
                 print(f"  Pedidos na fila: {estado['fila_pedidos']}")
                 print(f"  Peers conhecidos: {estado['peers_conhecidos']}")
+                print(f"  Peers ativos: {estado['peers_ativos']}")
                 print(f"{'='*40}\n")
             
             elif comando == "peers":
-                print(f"Peers conhecidos: {peer.listar_peers_conhecidos()}")
+                conhecidos = peer.listar_peers_conhecidos()
+                estado_info = peer.obter_estado()
+                ativos = set(estado_info['peers_ativos'])
+                
+                print(f"\n{'='*40}")
+                print("Peers conhecidos:")
+                for p in conhecidos:
+                    status = "💚 ATIVO" if p in ativos else "☠️  INATIVO"
+                    print(f"  {p}: {status}")
+                print(f"{'='*40}\n")
             
             elif comando == "descobrir":
                 print(f"Forçando descoberta de peers...")
