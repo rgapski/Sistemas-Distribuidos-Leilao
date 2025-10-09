@@ -34,6 +34,7 @@ class Peer:
         self.meu_timestamp = None  # Timestamp do meu pedido atual
         self.fila_pedidos = []  # Pedidos pendentes: [(timestamp, nome_peer), ...]
         self.respostas_recebidas = set()  # Conjunto de peers que responderam OK
+        self.peers_necessarios = set()  # Conjunto de peers dos quais esperamos resposta
         self.lock = threading.Lock()  # Lock para proteger acesso concorrente
         self.evento_liberado = threading.Event()  # Para sincronização de threads
         
@@ -190,14 +191,13 @@ class Peer:
                 self.peers_ativos.discard(nome_peer)
                 print(f"[{self.nome}] ☠️  {nome_peer} detectado como MORTO (sem heartbeat)")
                 
-                # Se estávamos esperando resposta dele, remove da espera
-                if nome_peer in self.respostas_recebidas:
-                    self.respostas_recebidas.discard(nome_peer)
+                # Remove das respostas esperadas se estava esperando
+                if nome_peer in self.peers_necessarios:
+                    self.peers_necessarios.discard(nome_peer)
                 
-                # Verifica se agora temos todas as respostas dos peers vivos
-                peers_vivos_necessarios = self.peers_ativos.intersection(set(self.peer_uris.keys()))
-                if self.estado == QUERENDO_ENTRAR and self.respostas_recebidas >= peers_vivos_necessarios:
-                    print(f"[{self.nome}] ✓ Tenho respostas de todos os peers vivos!")
+                # Verifica se agora temos todas as respostas dos peers vivos necessários
+                if self.estado == QUERENDO_ENTRAR and self.respostas_recebidas >= self.peers_necessarios:
+                    print(f"[{self.nome}] ✓ Tenho respostas de todos os peers vivos necessários!")
                     self.evento_liberado.set()
     
     def registrar_peer(self, nome_peer, uri_peer):
@@ -335,14 +335,13 @@ class Peer:
             print(f"[{self.nome}] ✓ Recebi OK de {nome_outro}")
             self.respostas_recebidas.add(nome_outro)
             
-            # Verifica se já recebeu todas as respostas necessárias
-            peers_necessarios = set(self.peer_uris.keys())
-            total_necessario = len(peers_necessarios)
+            # Usa os peers necessários definidos no momento do pedido
+            total_necessario = len(self.peers_necessarios)
             total_recebido = len(self.respostas_recebidas)
             
             print(f"[{self.nome}] Progresso: {total_recebido}/{total_necessario} respostas")
             
-            if self.respostas_recebidas >= peers_necessarios:
+            if self.respostas_recebidas >= self.peers_necessarios:
                 print(f"[{self.nome}] 🎉 Recebi OK de TODOS! Liberando para entrar na SC.")
                 self.evento_liberado.set()  # Libera a thread que está esperando
     
@@ -367,8 +366,9 @@ class Peer:
             print(f"[{self.nome}] SOLICITANDO ACESSO À SC (timestamp={self.meu_timestamp})")
             print(f"[{self.nome}] {'='*50}")
             
-            # Lista de peers ATIVOS para pedir permissão
-            peers_para_pedir = list(self.peers_ativos.intersection(set(self.peer_uris.keys())))
+            # Lista de peers ATIVOS para pedir permissão (snapshot no momento do pedido)
+            self.peers_necessarios = self.peers_ativos.intersection(set(self.peer_uris.keys()))
+            peers_para_pedir = list(self.peers_necessarios)
             total_peers = len(peers_para_pedir)
             
             if total_peers == 0:
@@ -398,9 +398,9 @@ class Peer:
         if not sucesso:
             print(f"[{self.nome}] ⚠️  Timeout! Verificando peers ativos...")
             with self.lock:
-                # Considera apenas peers que ainda estão ativos
-                peers_vivos = self.peers_ativos.intersection(set(self.peer_uris.keys()))
-                if self.respostas_recebidas >= peers_vivos:
+                # Recalcula peers necessários considerando os que ainda estão ativos
+                peers_ainda_vivos = self.peers_necessarios.intersection(self.peers_ativos)
+                if self.respostas_recebidas >= peers_ainda_vivos:
                     sucesso = True
                     print(f"[{self.nome}] ✓ Tenho respostas de todos os peers vivos!")
         
