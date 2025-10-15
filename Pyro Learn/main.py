@@ -1,8 +1,6 @@
 # Arquivo: main.py
 import os
 os.environ["PYRO_PREFER_IP_VERSION"] = "4"
-import logging
-logging.basicConfig(level=logging.DEBUG)
 import sys
 import time
 import threading
@@ -10,8 +8,11 @@ import subprocess
 import platform
 import Pyro5.api
 
-Pyro5.config.LOGFILE = "pyro_debug.log"
-Pyro5.config.LOGLEVEL = "DEBUG"
+Pyro5.config.SERVERTYPE = "thread"
+Pyro5.config.THREADPOOL_SIZE = 50
+Pyro5.config.SOCK_NODELAY = True
+Pyro5.config.COMMTIMEOUT = 2.0
+
 # Importações dos novos arquivos
 from peer import Peer
 import config
