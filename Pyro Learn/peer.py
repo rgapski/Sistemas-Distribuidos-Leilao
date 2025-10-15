@@ -70,6 +70,7 @@ class Peer:
     @Pyro5.api.oneway
     def receber_heartbeat(self, nome_peer):
         inicio = time.time()
+        print(f"[{timestamp_log()}][{self.nome}] ▶️ receber_heartbeat chamado!")
         with self.logica.lock:
             self.ultimos_heartbeats[nome_peer] = time.time()
             if nome_peer not in self.peers_ativos:

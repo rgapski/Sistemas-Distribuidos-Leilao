@@ -24,7 +24,7 @@ def verificar_servidor_nomes():
     except Pyro5.errors.NamingError:
         print("[SERVIDOR DE NOMES] Servidor de nomes não encontrado. Tentando iniciar...")
         try:
-            comando = [sys.executable, "-m", "Pyro5.nameserver"]
+            comando = [sys.executable, "-m", "Pyro5.nameserver", "--host", "127.0.0.1"]
             startupinfo = None
             if platform.system() == "Windows":
                 startupinfo = subprocess.STARTUPINFO()
