@@ -6,8 +6,6 @@ import time
 from threading import Timer
 import random
 from datetime import datetime
-import socket
-import pickle
 
 # Importações dos novos arquivos
 from logic import RicartAgrawalaLogic
@@ -17,10 +15,6 @@ import config
 def timestamp_log():
     """Retorna timestamp formatado para logs"""
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
-
-# Porta base para heartbeats UDP (cada peer usa porta_base + index)
-HEARTBEAT_PORT_BASE = 10000
 
 
 @Pyro5.api.expose
@@ -48,15 +42,6 @@ class Peer:
         self.thread_descoberta = None
         self.thread_heartbeat_envio = None
         self.thread_heartbeat_verificacao = None
-        self.thread_heartbeat_udp = None
-        
-        # --- UDP para Heartbeats ---
-        self.meu_indice = config.TODOS_PEERS.index(nome)
-        self.heartbeat_port = HEARTBEAT_PORT_BASE + self.meu_indice
-        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.udp_socket.bind(('localhost', self.heartbeat_port))
-        self.udp_socket.settimeout(1.0)
         
         # --- Contadores de Performance ---
         self.contadores = {
@@ -70,16 +55,13 @@ class Peer:
         self.lock_contadores = threading.Lock()
         
         print(f"[{timestamp_log()}][{self.nome}] Peer (Controlador) inicializado!")
-        print(f"[{timestamp_log()}][{self.nome}] Escutando heartbeats UDP na porta {self.heartbeat_port}")
 
     def configurar_descoberta(self, ns):
         self.ns = ns
         self.thread_descoberta = threading.Thread(target=self._descobrir_peers_continuamente, daemon=True)
         self.thread_descoberta.start()
-        self.thread_heartbeat_envio = threading.Thread(target=self._enviar_heartbeats_udp, daemon=True)
+        self.thread_heartbeat_envio = threading.Thread(target=self._enviar_heartbeats, daemon=True)
         self.thread_heartbeat_envio.start()
-        self.thread_heartbeat_udp = threading.Thread(target=self._receber_heartbeats_udp, daemon=True)
-        self.thread_heartbeat_udp.start()
         self.thread_heartbeat_verificacao = threading.Thread(target=self._verificar_heartbeats, daemon=True)
         self.thread_heartbeat_verificacao.start()
 
@@ -87,8 +69,19 @@ class Peer:
     
     @Pyro5.api.oneway
     def receber_heartbeat(self, nome_peer):
-        """Método legado - mantido para compatibilidade mas não usado"""
-        pass
+        inicio = time.time()
+        with self.logica.lock:
+            self.ultimos_heartbeats[nome_peer] = time.time()
+            if nome_peer not in self.peers_ativos:
+                self.peers_ativos.add(nome_peer)
+                print(f"[{timestamp_log()}][{self.nome}] 💚 {nome_peer} está ativo!")
+        
+        with self.lock_contadores:
+            self.contadores['heartbeats_recebidos'] += 1
+        
+        duracao = (time.time() - inicio) * 1000
+        if duracao > 100:  # Log se demorar mais de 100ms
+            print(f"[{timestamp_log()}][{self.nome}] ⚠️ receber_heartbeat demorou {duracao:.1f}ms")
 
     def receber_pedido(self, timestamp_outro, nome_outro):
         inicio = time.time()
@@ -97,6 +90,7 @@ class Peer:
         with self.lock_contadores:
             self.contadores['pedidos_recebidos'] += 1
 
+        # Verifica se o peer está ativo ANTES de processar a lógica
         if nome_outro not in self.peers_ativos:
             print(f"[{timestamp_log()}][{self.nome}] Ignorando pedido de {nome_outro} (peer não está ativo)")
             return
@@ -106,26 +100,19 @@ class Peer:
         if decisao == "CONCEDER_AGORA":
             delay = random.uniform(config.MIN_DELAY_RESPOSTA, config.MAX_DELAY_RESPOSTA)
             print(f"[{timestamp_log()}][{self.nome}] → Concedendo OK para {nome_outro}")
-            
-            if delay > 0:
-                time.sleep(delay)
+            time.sleep(delay)
 
-            threading.Thread(target=self._enviar_ok_async, args=(nome_outro,), daemon=True).start()
+            try:
+                proxy = self.obter_proxy(nome_outro)
+                proxy.receber_resposta(self.nome)
+            except Exception as e:
+                print(f"[{timestamp_log()}][{self.nome}] ✗ Erro ao enviar OK para {nome_outro}: {e}")
         else:
             print(f"[{timestamp_log()}][{self.nome}] → Adiando resposta para {nome_outro}")
         
         duracao = (time.time() - inicio) * 1000
         if duracao > 100:
             print(f"[{timestamp_log()}][{self.nome}] ⚠️ receber_pedido demorou {duracao:.1f}ms")
-    
-    def _enviar_ok_async(self, nome_outro):
-        """Envia OK de forma assíncrona"""
-        try:
-            proxy = self.obter_proxy(nome_outro)
-            proxy._pyroTimeout = 1.0
-            proxy.receber_resposta(self.nome)
-        except Exception as e:
-            print(f"[{timestamp_log()}][{self.nome}] ✗ Erro ao enviar OK para {nome_outro}: {e}")
 
     @Pyro5.api.oneway
     def receber_resposta(self, nome_outro):
@@ -204,19 +191,14 @@ class Peer:
         print(f"[{timestamp_log()}][{self.nome}] {'='*50}")
 
         for _, nome_peer in pedidos_pendentes:
-            threading.Thread(target=self._enviar_ok_adiado, args=(nome_peer,), daemon=True).start()
+            try:
+                print(f"[{timestamp_log()}][{self.nome}] → Enviando OK adiado para {nome_peer}")
+                proxy = self.obter_proxy(nome_peer)
+                proxy.receber_resposta(self.nome)
+            except Exception as e:
+                print(f"[{timestamp_log()}][{self.nome}] Erro ao enviar resposta para {nome_peer}: {e}")
         
         print(f"[{timestamp_log()}][{self.nome}] ✓ Liberado!\n")
-    
-    def _enviar_ok_adiado(self, nome_peer):
-        """Envia OK adiado de forma assíncrona"""
-        try:
-            print(f"[{timestamp_log()}][{self.nome}] → Enviando OK adiado para {nome_peer}")
-            proxy = self.obter_proxy(nome_peer)
-            proxy._pyroTimeout = 1.0
-            proxy.receber_resposta(self.nome)
-        except Exception as e:
-            print(f"[{timestamp_log()}][{self.nome}] Erro ao enviar resposta para {nome_peer}: {e}")
 
     # --- Métodos de Suporte e Threads ---
 
@@ -273,12 +255,9 @@ class Peer:
             
             time.sleep(3)
 
-    def _enviar_heartbeats_udp(self):
-        """Envia heartbeats via UDP - muito mais rápido que Pyro"""
-        print(f"[{timestamp_log()}][{self.nome}] Thread de envio de heartbeats UDP iniciada!")
+    def _enviar_heartbeats(self):
+        print(f"[{timestamp_log()}][{self.nome}] Thread de envio de heartbeats iniciada!")
         ciclo = 0
-        udp_send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
         while self.rodando:
             inicio_ciclo = time.time()
             ciclo += 1
@@ -286,51 +265,25 @@ class Peer:
             time.sleep(config.INTERVALO_HEARTBEAT)
             
             inicio_envio = time.time()
+            peers_para_enviar = list(self.peer_uris.keys())
             
-            # Enviar para todos os peers conhecidos
-            for i, peer_nome in enumerate(config.TODOS_PEERS):
-                if peer_nome != self.nome:
-                    try:
-                        porta_destino = HEARTBEAT_PORT_BASE + i
-                        mensagem = pickle.dumps(('HEARTBEAT', self.nome))
-                        udp_send_socket.sendto(mensagem, ('localhost', porta_destino))
-                        
-                        with self.lock_contadores:
-                            self.contadores['heartbeats_enviados'] += 1
-                    except Exception as e:
-                        if ciclo % 10 == 0:
-                            print(f"[{timestamp_log()}][{self.nome}] ⚠️ Erro UDP para {peer_nome}: {e}")
+            for nome_peer in peers_para_enviar:
+                try:
+                    proxy = self.obter_proxy(nome_peer)
+                    proxy._pyroTimeout = 1.0
+                    proxy.receber_heartbeat(self.nome)
+                    with self.lock_contadores:
+                        self.contadores['heartbeats_enviados'] += 1
+                except Exception as e:
+                    print(f"[{timestamp_log()}][{self.nome}] ⚠️ Erro ao enviar heartbeat para {nome_peer}: {e}")
             
             duracao_envio = (time.time() - inicio_envio) * 1000
             duracao_ciclo = (time.time() - inicio_ciclo) * 1000
             
             if ciclo % 10 == 0:
-                print(f"[{timestamp_log()}][{self.nome}] 🔄 Heartbeat UDP ciclo {ciclo}: "
-                      f"envio={duracao_envio:.1f}ms, ciclo_total={duracao_ciclo:.1f}ms")
-    
-    def _receber_heartbeats_udp(self):
-        """Recebe heartbeats via UDP"""
-        print(f"[{timestamp_log()}][{self.nome}] Thread de recepção de heartbeats UDP iniciada!")
-        
-        while self.rodando:
-            try:
-                data, addr = self.udp_socket.recvfrom(1024)
-                tipo, nome_peer = pickle.loads(data)
-                
-                if tipo == 'HEARTBEAT':
-                    with self.logica.lock:
-                        self.ultimos_heartbeats[nome_peer] = time.time()
-                        if nome_peer not in self.peers_ativos:
-                            self.peers_ativos.add(nome_peer)
-                            print(f"[{timestamp_log()}][{self.nome}] 💚 {nome_peer} está ativo!")
-                    
-                    with self.lock_contadores:
-                        self.contadores['heartbeats_recebidos'] += 1
-            except socket.timeout:
-                continue
-            except Exception as e:
-                if self.rodando:
-                    print(f"[{timestamp_log()}][{self.nome}] ⚠️ Erro ao receber UDP: {e}")
+                print(f"[{timestamp_log()}][{self.nome}] 🔄 Heartbeat ciclo {ciclo}: "
+                      f"envio={duracao_envio:.1f}ms, ciclo_total={duracao_ciclo:.1f}ms, "
+                      f"peers={len(peers_para_enviar)}")
 
     def _verificar_heartbeats(self):
         print(f"[{timestamp_log()}][{self.nome}] Thread de verificação de heartbeats iniciada!")
@@ -378,8 +331,6 @@ class Peer:
         self.rodando = False
         if self.timer_sc:
             self.timer_sc.cancel()
-        if self.udp_socket:
-            self.udp_socket.close()
 
     def obter_estado_completo(self):
         estado_logica = self.logica.obter_estado()

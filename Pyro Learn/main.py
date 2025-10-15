@@ -1,12 +1,16 @@
 # Arquivo: main.py
-
+import os
+os.environ["PYRO_PREFER_IP_VERSION"] = "4"
 import Pyro5.api
 import sys
 import time
 import threading
 import subprocess
 import platform
+import logging, Pyro5
 
+Pyro5.config.LOGFILE = "pyro_debug.log"
+Pyro5.config.LOGLEVEL = "DEBUG"
 # Importações dos novos arquivos
 from peer import Peer
 import config
@@ -38,6 +42,8 @@ def main():
     if len(sys.argv) != 2:
         print(f"Uso: python main.py <NomeDoPeer>\nPeers disponíveis: {', '.join(config.TODOS_PEERS)}")
         sys.exit(1)
+    logging.basicConfig(level=logging.DEBUG)
+
     
     nome_peer = sys.argv[1]
     
@@ -51,7 +57,7 @@ def main():
     if not ns:
         sys.exit(1)
     
-    daemon = Pyro5.api.Daemon()
+    daemon = Pyro5.api.Daemon(host="127.0.0.1")
     peer = Peer(nome_peer)
     uri = daemon.register(peer)
     
