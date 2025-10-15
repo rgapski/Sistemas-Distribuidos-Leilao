@@ -1,13 +1,14 @@
 # Arquivo: main.py
 import os
 os.environ["PYRO_PREFER_IP_VERSION"] = "4"
-import Pyro5.api
+import logging
+logging.basicConfig(level=logging.DEBUG)
 import sys
 import time
 import threading
 import subprocess
 import platform
-import logging, Pyro5
+import Pyro5.api
 
 Pyro5.config.LOGFILE = "pyro_debug.log"
 Pyro5.config.LOGLEVEL = "DEBUG"

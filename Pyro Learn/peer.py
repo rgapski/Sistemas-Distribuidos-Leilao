@@ -269,9 +269,13 @@ class Peer:
             
             for nome_peer in peers_para_enviar:
                 try:
+                    t0 = time.time()
                     proxy = self.obter_proxy(nome_peer)
+                    t1 = time.time()
                     proxy._pyroTimeout = 1.0
                     proxy.receber_heartbeat(self.nome)
+                    t2 = time.time()
+                    print(f"[DEBUG] {nome_peer}: criar_proxy={1000*(t1-t0):.1f}ms, call={1000*(t2-t1):.1f}ms")
                     with self.lock_contadores:
                         self.contadores['heartbeats_enviados'] += 1
                 except Exception as e:
