@@ -1,6 +1,6 @@
 # Arquivo: main.py
 import os
-os.environ["PYRO_PREFER_IP_VERSION"] = "4"
+
 import sys
 import time
 import threading
@@ -8,6 +8,7 @@ import subprocess
 import platform
 import Pyro5.api
 
+os.environ["PYRO_PREFER_IP_VERSION"] = "4"
 Pyro5.config.SERVERTYPE = "thread"
 Pyro5.config.THREADPOOL_SIZE = 50
 Pyro5.config.SOCK_NODELAY = True
@@ -44,8 +45,6 @@ def main():
     if len(sys.argv) != 2:
         print(f"Uso: python main.py <NomeDoPeer>\nPeers disponíveis: {', '.join(config.TODOS_PEERS)}")
         sys.exit(1)
-    logging.basicConfig(level=logging.DEBUG)
-
     
     nome_peer = sys.argv[1]
     
@@ -60,6 +59,12 @@ def main():
         sys.exit(1)
     
     daemon = Pyro5.api.Daemon(host="127.0.0.1")
+    if hasattr(daemon, "sockets"):
+        for s in daemon.sockets:
+            try:
+                s.settimeout(0.1)  # 100 ms
+            except Exception as e:
+                print("Falha ao ajustar timeout do socket:", e)
     peer = Peer(nome_peer)
     uri = daemon.register(peer)
     
