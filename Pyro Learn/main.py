@@ -1,8 +1,7 @@
 # Arquivo: main.py
 import os
-# CRÍTICO: Configurações que devem vir ANTES de importar Pyro5
 os.environ["PYRO_PREFER_IP_VERSION"] = "4"
-# Desabilita DNS reverso para evitar timeouts de 5 segundos
+
 import sys
 import time
 import threading
@@ -10,16 +9,11 @@ import subprocess
 import platform
 import Pyro5.api
 
-# Configurações adicionais do Pyro5 para evitar DNS reverso
 Pyro5.config.SERVERTYPE = "thread"
 Pyro5.config.THREADPOOL_SIZE = 50
 Pyro5.config.SOCK_NODELAY = True
 Pyro5.config.COMMTIMEOUT = 2.0
-# Força uso de IP ao invés de hostname
-Pyro5.config.PREFER_IP_VERSION = 4
-# IMPORTANTE: Desabilita validação de hostname que causa DNS reverso
-Pyro5.config.SSL_REQUIRECLIENTCERT = False
-Pyro5.config.DETAILED_TRACEBACK = False
+Pyro5.config.POLLTIMEOUT = 2.0
 
 # Importações dos novos arquivos
 from peer import Peer
@@ -28,10 +22,9 @@ import config
 def verificar_servidor_nomes():
     try:
         ns = Pyro5.api.locate_ns()
-        print("[SERVIDOR DE NOMES] Servidor de nomes encontrado!")
         return ns
     except Pyro5.errors.NamingError:
-        print("[SERVIDOR DE NOMES] Servidor de nomes não encontrado. Tentando iniciar...")
+        print("[SISTEMA] Iniciando Servidor de Nomes...")
         try:
             comando = [sys.executable, "-m", "Pyro5.nameserver", "--host", "127.0.0.1"]
             startupinfo = None
@@ -41,25 +34,28 @@ def verificar_servidor_nomes():
             subprocess.Popen(comando, startupinfo=startupinfo)
             time.sleep(3)
             ns = Pyro5.api.locate_ns()
-            print("[SERVIDOR DE NOMES] Servidor iniciado e encontrado com sucesso!")
             return ns
         except Exception as e:
-            print("\nERRO: Falha ao iniciar ou encontrar o Servidor de Nomes.")
-            print(f"Por favor, inicie-o manualmente: {sys.executable} -m Pyro5.nameserver\n")
+            print(f"\nERRO: Falha ao iniciar Servidor de Nomes: {e}")
+            print(f"Inicie manualmente: {sys.executable} -m Pyro5.nameserver\n")
             return None
 
 def main():
     if len(sys.argv) != 2:
-        print(f"Uso: python main.py <NomeDoPeer>\nPeers disponíveis: {', '.join(config.TODOS_PEERS)}")
+        print(f"Uso: python main.py <NomeDoPeer>")
+        print(f"Peers disponiveis: {', '.join(config.TODOS_PEERS)}")
         sys.exit(1)
     
     nome_peer = sys.argv[1]
     
     if nome_peer not in config.TODOS_PEERS:
-        print(f"Erro: '{nome_peer}' não é um nome válido!\nPeers disponíveis: {', '.join(config.TODOS_PEERS)}")
+        print(f"Erro: '{nome_peer}' nao e um nome valido!")
+        print(f"Peers disponiveis: {', '.join(config.TODOS_PEERS)}")
         sys.exit(1)
     
-    print(f"\n{'='*50}\nINICIANDO {nome_peer}\n{'='*50}\n")
+    print(f"\n{'='*60}")
+    print(f"INICIANDO {nome_peer}")
+    print(f"{'='*60}\n")
     
     ns = verificar_servidor_nomes()
     if not ns:
@@ -71,52 +67,57 @@ def main():
     
     try:
         ns.register(nome_peer, uri)
-        print(f"[{nome_peer}] Registrado com sucesso!")
     except Exception as e:
         print(f"[{nome_peer}] ERRO ao registrar: {e}")
         sys.exit(1)
 
     peer.configurar_descoberta(ns)
     
-    print(f"[{nome_peer}] Procurando peers existentes...")
     time.sleep(2)
     
     threading.Thread(target=daemon.requestLoop, daemon=True).start()
     
-    print(f"\n{'='*50}\n{nome_peer} ESTA PRONTO!\n{'='*50}")
-    print("\nComandos: pedir, liberar, status, peers, listar_ns, sair\n")
+    print(f"{'='*60}")
+    print(f"{nome_peer} PRONTO")
+    print(f"{'='*60}")
+    print("\nComandos: pedir, liberar, status, peers, sair\n")
     
     try:
         while True:
             entrada = input(f"{nome_peer}> ").strip().lower()
             if not entrada: continue
 
-            if entrada == "sair": break
-            elif entrada == "pedir": threading.Thread(target=peer.solicitar_sc, daemon=True).start()
-            elif entrada == "liberar": peer.liberar_sc()
+            if entrada == "sair": 
+                break
+            elif entrada == "pedir": 
+                threading.Thread(target=peer.solicitar_sc, daemon=True).start()
+            elif entrada == "liberar": 
+                peer.liberar_sc()
             elif entrada == "status":
                 estado = peer.obter_estado_completo()
-                print(f"\n--- Estado de {estado['nome']} ---")
-                print(f"  Estado Logico: {estado['estado']}")
-                print(f"  Relogio Logico: {estado['relogio']}")
+                print(f"\n{'='*60}")
+                print(f"ESTADO DE {estado['nome']}")
+                print(f"{'='*60}")
+                print(f"  Estado          : {estado['estado']}")
+                print(f"  Relogio Logico  : {estado['relogio']}")
                 print(f"  Timestamp Pedido: {estado['timestamp_pedido']}")
-                print(f"  Peers Ativos: {estado['peers_ativos']}")
-                print(f"  Peers Conhecidos: {estado['peers_conhecidos']}\n")
+                print(f"  Peers Ativos    : {estado['peers_ativos']}")
+                print(f"  Peers Conhecidos: {estado['peers_conhecidos']}")
+                print(f"{'='*60}\n")
             elif entrada == "peers":
                 print(f"Peers ativos: {list(peer.peers_ativos)}")
-            elif entrada == "listar_ns":
-                print(f"Registros no NS: {list(ns.list().keys())}")
-            else: print("Comando desconhecido.")
+            else: 
+                print("Comando desconhecido.")
     except (KeyboardInterrupt, EOFError):
         print()
     finally:
-        print(f"[{nome_peer}] Encerrando...")
+        print(f"\n[{nome_peer}] Encerrando...")
         peer.parar()
         try:
             ns.remove(nome_peer)
-            print(f"[{nome_peer}] Registro removido do servidor de nomes.")
-        except Exception: pass
-        print(f"[{nome_peer}] Encerrado.")
+        except Exception: 
+            pass
+        print(f"[{nome_peer}] Encerrado.\n")
 
 if __name__ == "__main__":
     main()
