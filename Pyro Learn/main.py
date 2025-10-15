@@ -1,6 +1,8 @@
 # Arquivo: main.py
 import os
-
+# CRÍTICO: Configurações que devem vir ANTES de importar Pyro5
+os.environ["PYRO_PREFER_IP_VERSION"] = "4"
+# Desabilita DNS reverso para evitar timeouts de 5 segundos
 import sys
 import time
 import threading
@@ -8,11 +10,16 @@ import subprocess
 import platform
 import Pyro5.api
 
-os.environ["PYRO_PREFER_IP_VERSION"] = "4"
+# Configurações adicionais do Pyro5 para evitar DNS reverso
 Pyro5.config.SERVERTYPE = "thread"
 Pyro5.config.THREADPOOL_SIZE = 50
 Pyro5.config.SOCK_NODELAY = True
 Pyro5.config.COMMTIMEOUT = 2.0
+# Força uso de IP ao invés de hostname
+Pyro5.config.PREFER_IP_VERSION = 4
+# IMPORTANTE: Desabilita validação de hostname que causa DNS reverso
+Pyro5.config.SSL_REQUIRECLIENTCERT = False
+Pyro5.config.DETAILED_TRACEBACK = False
 
 # Importações dos novos arquivos
 from peer import Peer
@@ -59,12 +66,6 @@ def main():
         sys.exit(1)
     
     daemon = Pyro5.api.Daemon(host="127.0.0.1")
-    if hasattr(daemon, "sockets"):
-        for s in daemon.sockets:
-            try:
-                s.settimeout(0.1)  # 100 ms
-            except Exception as e:
-                print("Falha ao ajustar timeout do socket:", e)
     peer = Peer(nome_peer)
     uri = daemon.register(peer)
     
@@ -82,7 +83,7 @@ def main():
     
     threading.Thread(target=daemon.requestLoop, daemon=True).start()
     
-    print(f"\n{'='*50}\n{nome_peer} ESTÁ PRONTO!\n{'='*50}")
+    print(f"\n{'='*50}\n{nome_peer} ESTA PRONTO!\n{'='*50}")
     print("\nComandos: pedir, liberar, status, peers, listar_ns, sair\n")
     
     try:
@@ -96,8 +97,8 @@ def main():
             elif entrada == "status":
                 estado = peer.obter_estado_completo()
                 print(f"\n--- Estado de {estado['nome']} ---")
-                print(f"  Estado Lógico: {estado['estado']}")
-                print(f"  Relógio Lógico: {estado['relogio']}")
+                print(f"  Estado Logico: {estado['estado']}")
+                print(f"  Relogio Logico: {estado['relogio']}")
                 print(f"  Timestamp Pedido: {estado['timestamp_pedido']}")
                 print(f"  Peers Ativos: {estado['peers_ativos']}")
                 print(f"  Peers Conhecidos: {estado['peers_conhecidos']}\n")

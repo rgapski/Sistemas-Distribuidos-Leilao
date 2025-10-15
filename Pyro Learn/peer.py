@@ -70,19 +70,19 @@ class Peer:
     @Pyro5.api.oneway
     def receber_heartbeat(self, nome_peer):
         inicio = time.time()
-        print(f"[{timestamp_log()}][{self.nome}] ▶️ receber_heartbeat chamado!")
+        print(f"[{timestamp_log()}][{self.nome}] >> receber_heartbeat chamado!")
         with self.logica.lock:
             self.ultimos_heartbeats[nome_peer] = time.time()
             if nome_peer not in self.peers_ativos:
                 self.peers_ativos.add(nome_peer)
-                print(f"[{timestamp_log()}][{self.nome}] 💚 {nome_peer} está ativo!")
+                print(f"[{timestamp_log()}][{self.nome}] [OK] {nome_peer} esta ativo!")
         
         with self.lock_contadores:
             self.contadores['heartbeats_recebidos'] += 1
         
         duracao = (time.time() - inicio) * 1000
         if duracao > 100:  # Log se demorar mais de 100ms
-            print(f"[{timestamp_log()}][{self.nome}] ⚠️ receber_heartbeat demorou {duracao:.1f}ms")
+            print(f"[{timestamp_log()}][{self.nome}] [AVISO] receber_heartbeat demorou {duracao:.1f}ms")
 
     def receber_pedido(self, timestamp_outro, nome_outro):
         inicio = time.time()
@@ -93,27 +93,27 @@ class Peer:
 
         # Verifica se o peer está ativo ANTES de processar a lógica
         if nome_outro not in self.peers_ativos:
-            print(f"[{timestamp_log()}][{self.nome}] Ignorando pedido de {nome_outro} (peer não está ativo)")
+            print(f"[{timestamp_log()}][{self.nome}] Ignorando pedido de {nome_outro} (peer nao esta ativo)")
             return
         
         decisao = self.logica.receber_pedido(timestamp_outro, nome_outro)
         
         if decisao == "CONCEDER_AGORA":
             delay = random.uniform(config.MIN_DELAY_RESPOSTA, config.MAX_DELAY_RESPOSTA)
-            print(f"[{timestamp_log()}][{self.nome}] → Concedendo OK para {nome_outro}")
+            print(f"[{timestamp_log()}][{self.nome}] -> Concedendo OK para {nome_outro}")
             time.sleep(delay)
 
             try:
                 proxy = self.obter_proxy(nome_outro)
                 proxy.receber_resposta(self.nome)
             except Exception as e:
-                print(f"[{timestamp_log()}][{self.nome}] ✗ Erro ao enviar OK para {nome_outro}: {e}")
+                print(f"[{timestamp_log()}][{self.nome}] [ERRO] Erro ao enviar OK para {nome_outro}: {e}")
         else:
-            print(f"[{timestamp_log()}][{self.nome}] → Adiando resposta para {nome_outro}")
+            print(f"[{timestamp_log()}][{self.nome}] -> Adiando resposta para {nome_outro}")
         
         duracao = (time.time() - inicio) * 1000
         if duracao > 100:
-            print(f"[{timestamp_log()}][{self.nome}] ⚠️ receber_pedido demorou {duracao:.1f}ms")
+            print(f"[{timestamp_log()}][{self.nome}] [AVISO] receber_pedido demorou {duracao:.1f}ms")
 
     @Pyro5.api.oneway
     def receber_resposta(self, nome_outro):
@@ -124,17 +124,17 @@ class Peer:
         pode_entrar, status = self.logica.receber_resposta(nome_outro)
         
         if status == "TARDIO":
-            print(f"[{timestamp_log()}][{self.nome}] Recebi OK tardio de {nome_outro}, mas não estou mais esperando. Ignorando.")
+            print(f"[{timestamp_log()}][{self.nome}] Recebi OK tardio de {nome_outro}, mas nao estou mais esperando. Ignorando.")
             return
 
-        print(f"[{timestamp_log()}][{self.nome}] ✓ Recebi OK de {nome_outro}")
+        print(f"[{timestamp_log()}][{self.nome}] [OK] Recebi OK de {nome_outro}")
         if pode_entrar:
             print(f"[{timestamp_log()}][{self.nome}] Recebi OK de TODOS! Liberando para entrar na SC.")
             self.evento_liberado.set()
         
         duracao = (time.time() - inicio) * 1000
         if duracao > 100:
-            print(f"[{timestamp_log()}][{self.nome}] ⚠️ receber_resposta demorou {duracao:.1f}ms")
+            print(f"[{timestamp_log()}][{self.nome}] [AVISO] receber_resposta demorou {duracao:.1f}ms")
 
     # --- Métodos Locais (Chamados pelo Usuário) ---
 
@@ -147,11 +147,11 @@ class Peer:
         timestamp, _ = self.logica.iniciar_pedido_sc(peers_para_pedir_nomes)
 
         if timestamp is None:
-            print(f"[{timestamp_log()}][{self.nome}] Erro: já estou em outro estado.")
+            print(f"[{timestamp_log()}][{self.nome}] Erro: ja estou em outro estado.")
             return
 
         print(f"\n[{timestamp_log()}][{self.nome}] {'='*50}")
-        print(f"[{timestamp_log()}][{self.nome}] SOLICITANDO ACESSO À SC (timestamp={timestamp})")
+        print(f"[{timestamp_log()}][{self.nome}] SOLICITANDO ACESSO A SC (timestamp={timestamp})")
         print(f"[{timestamp_log()}][{self.nome}] {'='*50}")
 
         if not peers_para_pedir_nomes:
@@ -167,39 +167,39 @@ class Peer:
         if sucesso:
             self.logica.entrar_sc()
             print(f"\n[{timestamp_log()}][{self.nome}] {'='*50}")
-            print(f"[{timestamp_log()}][{self.nome}] 🔒 ENTREI NA SEÇÃO CRÍTICA!")
+            print(f"[{timestamp_log()}][{self.nome}] [SC] ENTREI NA SECAO CRITICA!")
             print(f"[{timestamp_log()}][{self.nome}] {'='*50}\n")
-            print(f"[{timestamp_log()}][{self.nome}] ⏳ O recurso será liberado automaticamente em {config.TEMPO_MAXIMO_SC} segundos.")
+            print(f"[{timestamp_log()}][{self.nome}] [TEMPO] O recurso sera liberado automaticamente em {config.TEMPO_MAXIMO_SC} segundos.")
             self.timer_sc = Timer(config.TEMPO_MAXIMO_SC, self.liberar_sc)
             self.timer_sc.start()
         else:
             self.logica.falhar_pedido()
-            print(f"[{timestamp_log()}][{self.nome}] ✗ Falha ao obter acesso à SC (Timeout geral)")
+            print(f"[{timestamp_log()}][{self.nome}] [ERRO] Falha ao obter acesso a SC (Timeout geral)")
 
     def liberar_sc(self):
         if self.timer_sc and self.timer_sc.is_alive():
             self.timer_sc.cancel()
-            print(f"[{timestamp_log()}][{self.nome}] Liberação manual. Timer de liberação automática cancelado.")
+            print(f"[{timestamp_log()}][{self.nome}] Liberacao manual. Timer de liberacao automatica cancelado.")
 
         pedidos_pendentes = self.logica.liberar_sc()
 
         if not pedidos_pendentes and self.logica.obter_estado()['estado'] != "LIBERADO":
-             print(f"[{timestamp_log()}][{self.nome}] Erro: não estou na SC.")
+             print(f"[{timestamp_log()}][{self.nome}] Erro: nao estou na SC.")
              return
         
         print(f"\n[{timestamp_log()}][{self.nome}] {'='*50}")
-        print(f"[{timestamp_log()}][{self.nome}] SAINDO DA SEÇÃO CRÍTICA")
+        print(f"[{timestamp_log()}][{self.nome}] SAINDO DA SECAO CRITICA")
         print(f"[{timestamp_log()}][{self.nome}] {'='*50}")
 
         for _, nome_peer in pedidos_pendentes:
             try:
-                print(f"[{timestamp_log()}][{self.nome}] → Enviando OK adiado para {nome_peer}")
+                print(f"[{timestamp_log()}][{self.nome}] -> Enviando OK adiado para {nome_peer}")
                 proxy = self.obter_proxy(nome_peer)
                 proxy.receber_resposta(self.nome)
             except Exception as e:
                 print(f"[{timestamp_log()}][{self.nome}] Erro ao enviar resposta para {nome_peer}: {e}")
         
-        print(f"[{timestamp_log()}][{self.nome}] ✓ Liberado!\n")
+        print(f"[{timestamp_log()}][{self.nome}] [OK] Liberado!\n")
 
     # --- Métodos de Suporte e Threads ---
 
@@ -216,10 +216,10 @@ class Peer:
         with self.logica.lock:
             if nome_peer in self.peers_ativos:
                 self.peers_ativos.discard(nome_peer)
-                print(f"[{timestamp_log()}][{self.nome}] ❌ {nome_peer} detectado como MORTO (sem heartbeat)")
+                print(f"[{timestamp_log()}][{self.nome}] [X] {nome_peer} detectado como MORTO (sem heartbeat)")
                 
                 if self.logica.remover_peer_de_espera(nome_peer):
-                    print(f"[{timestamp_log()}][{self.nome}] ✓ Tenho respostas de todos os peers vivos necessários!")
+                    print(f"[{timestamp_log()}][{self.nome}] [OK] Tenho respostas de todos os peers vivos necessarios!")
                     self.evento_liberado.set()
 
     def _descobrir_peers_continuamente(self):
@@ -238,7 +238,7 @@ class Peer:
                         uri_outro = ns_local.lookup(outro_peer)
                         if outro_peer not in self.peer_uris:
                              self.peer_uris[outro_peer] = uri_outro
-                             print(f"[{timestamp_log()}][{self.nome}] ✓ Peer '{outro_peer}' conectado!")
+                             print(f"[{timestamp_log()}][{self.nome}] [OK] Peer '{outro_peer}' conectado!")
                              descobertos += 1
                     except Pyro5.errors.NamingError:
                         if outro_peer in self.peer_uris:
@@ -250,7 +250,7 @@ class Peer:
             duracao_ciclo = (time.time() - inicio_ciclo) * 1000
             
             if ciclo % 10 == 0:
-                print(f"[{timestamp_log()}][{self.nome}] 🔎 Descoberta ciclo {ciclo}: "
+                print(f"[{timestamp_log()}][{self.nome}] [DESCOBERTA] Ciclo {ciclo}: "
                       f"conectados={len(self.peer_uris)}, novos={descobertos}, "
                       f"tempo={duracao_ciclo:.1f}ms")
             
@@ -280,18 +280,18 @@ class Peer:
                     with self.lock_contadores:
                         self.contadores['heartbeats_enviados'] += 1
                 except Exception as e:
-                    print(f"[{timestamp_log()}][{self.nome}] ⚠️ Erro ao enviar heartbeat para {nome_peer}: {e}")
+                    print(f"[{timestamp_log()}][{self.nome}] [AVISO] Erro ao enviar heartbeat para {nome_peer}: {e}")
             
             duracao_envio = (time.time() - inicio_envio) * 1000
             duracao_ciclo = (time.time() - inicio_ciclo) * 1000
             
             if ciclo % 10 == 0:
-                print(f"[{timestamp_log()}][{self.nome}] 🔄 Heartbeat ciclo {ciclo}: "
+                print(f"[{timestamp_log()}][{self.nome}] [HEARTBEAT] Ciclo {ciclo}: "
                       f"envio={duracao_envio:.1f}ms, ciclo_total={duracao_ciclo:.1f}ms, "
                       f"peers={len(peers_para_enviar)}")
 
     def _verificar_heartbeats(self):
-        print(f"[{timestamp_log()}][{self.nome}] Thread de verificação de heartbeats iniciada!")
+        print(f"[{timestamp_log()}][{self.nome}] Thread de verificacao de heartbeats iniciada!")
         ciclo = 0
         while self.rodando:
             inicio_ciclo = time.time()
@@ -310,7 +310,7 @@ class Peer:
                             peers_mortos.append((nome_peer, tempo_desde_ultimo))
             
             for nome_peer, tempo_desde in peers_mortos:
-                print(f"[{timestamp_log()}][{self.nome}] ⚠️ Peer {nome_peer} sem heartbeat há {tempo_desde:.1f}s")
+                print(f"[{timestamp_log()}][{self.nome}] [AVISO] Peer {nome_peer} sem heartbeat ha {tempo_desde:.1f}s")
                 self._remover_peer_morto(nome_peer)
             
             with self.lock_contadores:
@@ -321,16 +321,21 @@ class Peer:
             if ciclo % 3 == 0:
                 with self.lock_contadores:
                     stats = self.contadores.copy()
-                print(f"[{timestamp_log()}][{self.nome}] 🔍 Verificação {ciclo}: "
+                print(f"[{timestamp_log()}][{self.nome}] [VERIFICACAO] Ciclo {ciclo}: "
                       f"ativos={len(self.peers_ativos)}, mortos={len(peers_mortos)}, "
                       f"ciclo={duracao_ciclo:.1f}ms")
-                print(f"[{timestamp_log()}][{self.nome}] 📊 Stats: "
+                print(f"[{timestamp_log()}][{self.nome}] [STATS] "
                       f"HB_enviados={stats['heartbeats_enviados']}, "
                       f"HB_recebidos={stats['heartbeats_recebidos']}, "
-                      f"verificações={stats['verificacoes_heartbeat']}")
+                      f"verificacoes={stats['verificacoes_heartbeat']}")
     
     def obter_proxy(self, nome_peer):
-        return Pyro5.api.Proxy(f"PYRONAME:{nome_peer}")
+        if nome_peer not in self.peer_uris:
+            return None
+        # Usa a URI diretamente ao invés de lookup por nome
+        proxy = Pyro5.api.Proxy(self.peer_uris[nome_peer])
+        proxy._pyroTimeout = 2.0
+        return proxy
 
     def parar(self):
         self.rodando = False
