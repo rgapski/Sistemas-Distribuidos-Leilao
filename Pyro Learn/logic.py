@@ -20,7 +20,7 @@ class RicartAgrawalaLogic:
         self.fila_pedidos = []
         self.respostas_recebidas = set()
         self.peers_necessarios = set()
-        # Trocado Lock por RLock para permitir locks aninhados >>>
+        # Trocado Lock por RLock para permitir locks aninhados
         self.lock = threading.RLock()
 
     def iniciar_pedido_sc(self, peers_ativos):
