@@ -10,13 +10,13 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
 # --- Configurações ---
-RABBITMQ_HOST = 'localhost'
+RABBITMQ_HOST = '127.0.0.1'
 RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
 
-MS_LEILAO_URL = "http://localhost:5001"
-MS_LANCE_URL = "http://localhost:5002"
+MS_LEILAO_URL = "http://127.0.0.1:5001"
+MS_LANCE_URL = "http://127.0.0.1:5002"
 
 BINDING_KEYS = ['lance.validado', 'lance.invalidado', 'leilao.vencedor', 'link_pagamento', 'status_pagamento']
 
@@ -60,7 +60,7 @@ def efetuar_lance_proxy():
             if id_usuario in clientes_sse:
                 clientes_sse[id_usuario]['interesses'].add(id_leilao)
                 print(f"[Auto-Follow] Usuário {id_usuario} inscrito automaticamente no leilão {id_leilao}")
-                
+
     try:
         response = requests.post(f"{MS_LANCE_URL}/lance", json=dados)
         return jsonify(response.json()), response.status_code

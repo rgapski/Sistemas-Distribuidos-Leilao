@@ -7,13 +7,13 @@ import requests
 from flask import Flask, request, jsonify
 
 # --- Configurações ---
-RABBITMQ_HOST = 'localhost'
+RABBITMQ_HOST = '127.0.0.1'
 RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
 
 # URL do simulador que CRIAMOS no passo 4
-SIMULADOR_URL = "http://localhost:5004/iniciar_pagamento" 
+SIMULADOR_URL = "http://127.0.0.1:5004/iniciar_pagamento" 
 
 # --- Configuração do Flask ---
 app = Flask(__name__)

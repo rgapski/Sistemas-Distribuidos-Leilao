@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # --- Configuração ---
 # O endpoint para onde este simulador enviará o status (o webhook do MS Pagamento)
-WEBHOOK_URL = "http://localhost:5003/webhook/status" # Assumindo que o MS Pagamento rodará na porta 5003
+WEBHOOK_URL = "http://127.0.0.1:5003/webhook/status" # Assumindo que o MS Pagamento rodará na porta 5003
 
 proximo_id_transacao = 1000
 

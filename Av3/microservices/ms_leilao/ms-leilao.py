@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify
 from datetime import datetime, timezone
 
 # --- Configurações ---
-RABBITMQ_HOST = 'localhost'
+RABBITMQ_HOST = '127.0.0.1'
 RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
@@ -50,7 +50,7 @@ def agendar_leilao(id_leilao):
         with db_lock:
             leilao = leiloes_db.get(id_leilao)
         if not leilao: return
-        
+
         agora = datetime.now(timezone.utc)
         
         # 1. Espera iniciar
