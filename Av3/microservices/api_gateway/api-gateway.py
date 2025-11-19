@@ -49,8 +49,20 @@ def gerenciar_leiloes():
 
 @app.route('/lance', methods=['POST'])
 def efetuar_lance_proxy():
+    dados = request.json
+    
+    id_usuario = dados.get('id_usuario')
+    id_leilao = dados.get('id_leilao')
+    
+    if id_usuario and id_leilao:
+        with clientes_lock:
+            # Se o usuário está conectado ao SSE, adicionamos o interesse
+            if id_usuario in clientes_sse:
+                clientes_sse[id_usuario]['interesses'].add(id_leilao)
+                print(f"[Auto-Follow] Usuário {id_usuario} inscrito automaticamente no leilão {id_leilao}")
+                
     try:
-        response = requests.post(f"{MS_LANCE_URL}/lance", json=request.json)
+        response = requests.post(f"{MS_LANCE_URL}/lance", json=dados)
         return jsonify(response.json()), response.status_code
     except requests.exceptions.RequestException as e:
         if e.response is not None:
@@ -103,7 +115,7 @@ def sse_stream():
 
     return Response(event_generator(id_usuario), mimetype='text/event-stream')
 
-# --- Consumidor RabbitMQ + Lógica de Atualização ---
+# --- Consumidor RabbitMQ ---
 
 def despachar_evento_sse(evento_tipo, dados):
     msg = f"event: {evento_tipo}\ndata: {json.dumps(dados)}\n\n"
@@ -127,7 +139,6 @@ def callback_rabbitmq(ch, method, properties, body):
     dados = json.loads(body.decode())
     print(f"[Gateway SUB] Evento recebido: {routing_key}")
     
-    # 1. Mapeamento para SSE
     mapa = {
         'lance.validado': 'novo_lance',
         'lance.invalidado': 'lance_invalido',
@@ -136,18 +147,15 @@ def callback_rabbitmq(ch, method, properties, body):
         'status_pagamento': 'status_pagamento'
     }
     
-    # 2. Lógica Extra: Atualizar MS Leilão via REST
     if routing_key == 'lance.validado':
         try:
             id_leilao = dados.get('id_leilao')
             novo_valor = dados.get('valor')
-            # Chama o endpoint PATCH que criamos no MS Leilão
             requests.patch(f"{MS_LEILAO_URL}/leiloes/{id_leilao}", json={"valor": novo_valor})
             print(f"[Gateway] Atualizou MS Leilão {id_leilao} com valor {novo_valor}")
         except Exception as e:
             print(f"[Gateway] Falha ao atualizar MS Leilão: {e}")
 
-    # 3. Despacha SSE
     if routing_key in mapa:
         despachar_evento_sse(mapa[routing_key], dados)
         
