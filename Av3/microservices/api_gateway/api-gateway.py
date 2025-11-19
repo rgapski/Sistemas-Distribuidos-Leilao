@@ -101,7 +101,9 @@ def sse_stream():
         with clientes_lock:
             clientes_sse[user_id] = {'queue': q, 'interesses': set()}
             print(f"[SSE] Cliente {user_id} conectado.")
-        
+            
+        yield f"event: ping\ndata: {json.dumps({'msg': 'conexao_iniciada'})}\n\n"
+
         try:
             while True:
                 msg = q.get()
@@ -113,7 +115,6 @@ def sse_stream():
             print(f"[SSE] Cliente {user_id} desconectou.")
 
     return Response(event_generator(id_usuario), mimetype='text/event-stream')
-
 # --- Consumidor RabbitMQ ---
 
 def despachar_evento_sse(evento_tipo, dados):
