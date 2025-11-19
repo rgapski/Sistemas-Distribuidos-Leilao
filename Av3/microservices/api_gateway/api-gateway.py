@@ -7,7 +7,7 @@ import requests
 import queue
 import time
 from flask import Flask, request, jsonify, Response
-from flask_cors import CORS # <--- IMPORTANTE: Nova importação
+from flask_cors import CORS
 
 # --- Configurações ---
 RABBITMQ_HOST = 'localhost'
@@ -20,88 +20,76 @@ MS_LANCE_URL = "http://localhost:5002"
 
 BINDING_KEYS = ['lance.validado', 'lance.invalidado', 'leilao.vencedor', 'link_pagamento', 'status_pagamento']
 
-# --- Configuração do Flask ---
 app = Flask(__name__)
-CORS(app) # <--- IMPORTANTE: Habilita o acesso do Frontend
+CORS(app)
 
-# --- Gerenciador de Conexões SSE ---
+# --- Gerenciamento SSE ---
 clientes_sse = {}
 clientes_lock = threading.Lock()
 
-# --- Endpoints REST (Rotas Unificadas) ---
+# --- Endpoints REST ---
 
-@app.route('/leiloes', methods=['GET', 'POST']) # Aceita ambos
+@app.route('/leiloes', methods=['GET', 'POST'])
 def gerenciar_leiloes():
-    """ Proxy para o MS Leilão (Criação e Consulta) """
     if request.method == 'POST':
-        # Criar Leilão
         try:
             print(f"[Gateway] Encaminhando POST /leiloes para {MS_LEILAO_URL}")
             response = requests.post(f"{MS_LEILAO_URL}/leiloes", json=request.json)
             return jsonify(response.json()), response.status_code
         except requests.exceptions.RequestException as e:
-            return jsonify({"erro": f"Erro ao contatar MS Leilão: {e}"}), 503
+            return jsonify({"erro": f"Erro MS Leilão: {e}"}), 503
             
     elif request.method == 'GET':
-        # Consultar Leilões
         try:
             print(f"[Gateway] Encaminhando GET /leiloes para {MS_LEILAO_URL}")
             response = requests.get(f"{MS_LEILAO_URL}/leiloes/ativos")
             return jsonify(response.json()), response.status_code
         except requests.exceptions.RequestException as e:
-            return jsonify({"erro": f"Erro ao contatar MS Leilão: {e}"}), 503
+            return jsonify({"erro": f"Erro MS Leilão: {e}"}), 503
 
 @app.route('/lance', methods=['POST'])
 def efetuar_lance_proxy():
-    """ Encaminha a tentativa de lance para o MS Lance """
     try:
         response = requests.post(f"{MS_LANCE_URL}/lance", json=request.json)
         return jsonify(response.json()), response.status_code
     except requests.exceptions.RequestException as e:
         if e.response is not None:
             return jsonify(e.response.json()), e.response.status_code
-        return jsonify({"erro": f"Erro ao contatar MS Lance: {e}"}), 503
-
-# --- Endpoints REST (Gerenciamento de Notificações) ---
+        return jsonify({"erro": f"Erro MS Lance: {e}"}), 503
 
 @app.route('/notificacoes/registrar', methods=['POST'])
 def registrar_interesse():
     dados = request.json
     id_usuario = dados.get('id_usuario')
     id_leilao = dados.get('id_leilao')
-    
     if not id_usuario or id_leilao is None:
         return jsonify({"erro": "Dados incompletos"}), 400
-        
     with clientes_lock:
         if id_usuario not in clientes_sse:
             return jsonify({"erro": "Usuário não conectado ao SSE"}), 400
         clientes_sse[id_usuario]['interesses'].add(id_leilao)
-    
     return jsonify({"status": "ok"}), 200
 
 @app.route('/notificacoes/cancelar', methods=['POST'])
 def cancelar_interesse():
     dados = request.json
     with clientes_lock:
-        if dados.get('id_usuario') in clientes_sse:
-            clientes_sse[dados.get('id_usuario')]['interesses'].discard(dados.get('id_leilao'))
+        uid = dados.get('id_usuario')
+        if uid in clientes_sse:
+            clientes_sse[uid]['interesses'].discard(dados.get('id_leilao'))
     return jsonify({"status": "ok"}), 200
-
-# --- Endpoint SSE ---
 
 @app.route('/eventos')
 def sse_stream():
     id_usuario = request.args.get('id_usuario')
-    if not id_usuario:
-        return jsonify({"erro": "Faltou id_usuario"}), 400
+    if not id_usuario: return jsonify({"erro": "Faltou id_usuario"}), 400
 
     def event_generator(user_id):
         q = queue.Queue()
         with clientes_lock:
             clientes_sse[user_id] = {'queue': q, 'interesses': set()}
             print(f"[SSE] Cliente {user_id} conectado.")
-            
+        
         yield f"event: ping\ndata: {json.dumps({'msg': 'conexao_iniciada'})}\n\n"
 
         try:
@@ -110,29 +98,25 @@ def sse_stream():
                 yield msg
         except GeneratorExit:
             with clientes_lock:
-                if user_id in clientes_sse:
-                    del clientes_sse[user_id]
+                if user_id in clientes_sse: del clientes_sse[user_id]
             print(f"[SSE] Cliente {user_id} desconectou.")
 
     return Response(event_generator(id_usuario), mimetype='text/event-stream')
-# --- Consumidor RabbitMQ ---
+
+# --- Consumidor RabbitMQ + Lógica de Atualização ---
 
 def despachar_evento_sse(evento_tipo, dados):
     msg = f"event: {evento_tipo}\ndata: {json.dumps(dados)}\n\n"
     id_leilao = dados.get('id_leilao')
-    
-    # Identifica destinatário específico (para eventos privados)
     destinatario = None
+    
     if evento_tipo == 'lance_invalido': destinatario = dados.get('id_usuario')
     elif evento_tipo in ['link_pagamento', 'status_pagamento']: 
         destinatario = dados.get('id_vencedor') or dados.get('id_comprador')
 
     with clientes_lock:
-        # Envio Direto (Privado)
         if destinatario and destinatario in clientes_sse:
             clientes_sse[destinatario]['queue'].put_nowait(msg)
-        
-        # Envio Broadcast (Público para interessados)
         elif evento_tipo in ['novo_lance', 'vencedor_leilao'] and id_leilao is not None:
             for uid, info in clientes_sse.items():
                 if id_leilao in info['interesses']:
@@ -143,6 +127,7 @@ def callback_rabbitmq(ch, method, properties, body):
     dados = json.loads(body.decode())
     print(f"[Gateway SUB] Evento recebido: {routing_key}")
     
+    # 1. Mapeamento para SSE
     mapa = {
         'lance.validado': 'novo_lance',
         'lance.invalidado': 'lance_invalido',
@@ -151,6 +136,18 @@ def callback_rabbitmq(ch, method, properties, body):
         'status_pagamento': 'status_pagamento'
     }
     
+    # 2. Lógica Extra: Atualizar MS Leilão via REST
+    if routing_key == 'lance.validado':
+        try:
+            id_leilao = dados.get('id_leilao')
+            novo_valor = dados.get('valor')
+            # Chama o endpoint PATCH que criamos no MS Leilão
+            requests.patch(f"{MS_LEILAO_URL}/leiloes/{id_leilao}", json={"valor": novo_valor})
+            print(f"[Gateway] Atualizou MS Leilão {id_leilao} com valor {novo_valor}")
+        except Exception as e:
+            print(f"[Gateway] Falha ao atualizar MS Leilão: {e}")
+
+    # 3. Despacha SSE
     if routing_key in mapa:
         despachar_evento_sse(mapa[routing_key], dados)
         
@@ -170,7 +167,7 @@ def iniciar_consumidor():
             ch.basic_consume(queue=q, on_message_callback=callback_rabbitmq)
             ch.start_consuming()
         except Exception as e:
-            print(f"[Gateway] Erro no RabbitMQ: {e}. Reconectando em 5s...")
+            print(f"[Gateway] Erro RabbitMQ: {e}. Reconectando em 5s...")
             time.sleep(5)
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ import json
 import time
 import threading
 from flask import Flask, request, jsonify
-from datetime import datetime, timedelta, timezone # <--- ADICIONADO timezone
+from datetime import datetime, timezone
 
 # --- Configurações ---
 RABBITMQ_HOST = 'localhost'
@@ -18,8 +18,9 @@ app = Flask(__name__)
 # --- Banco em Memória ---
 leiloes_db = {}
 proximo_id_leilao = 1
+db_lock = threading.Lock() # Protege o acesso concorrente ao dicionário
 
-# --- Publicação ---
+# --- Publicação (Apenas Publisher) ---
 def publicar_evento(routing_key: str, evento: dict):
     try:
         creds = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
@@ -43,49 +44,48 @@ def publicar_evento(routing_key: str, evento: dict):
     except Exception as e:
         print(f"Erro ao publicar evento: {e}")
 
-# --- Agendamento ---
+# --- Agendamento de Ciclo de Vida ---
 def agendar_leilao(id_leilao):
     try:
-        leilao = leiloes_db.get(id_leilao)
+        with db_lock:
+            leilao = leiloes_db.get(id_leilao)
         if not leilao: return
+        
         agora = datetime.now(timezone.utc)
         
         # 1. Espera iniciar
         tempo_para_iniciar = (leilao['inicio'] - agora).total_seconds()
         if tempo_para_iniciar > 0:
-            print(f"Leilão {id_leilao} aguardando {tempo_para_iniciar:.1f}s para iniciar.")
             time.sleep(tempo_para_iniciar)
         
         # 2. Inicia
-        leilao['status'] = 'ativo'
+        with db_lock: leilao['status'] = 'ativo'
         print(f"Leilão {id_leilao} INICIADO.")
         publicar_evento('leilao.iniciado', leilao)
         
         # 3. Espera finalizar
-        # Recalcula 'agora' porque o tempo passou
         agora = datetime.now(timezone.utc) 
         tempo_para_finalizar = (leilao['fim'] - agora).total_seconds()
-        
         if tempo_para_finalizar > 0:
-            print(f"Leilão {id_leilao} ativo por mais {tempo_para_finalizar:.1f}s.")
             time.sleep(tempo_para_finalizar)
 
         # 4. Finaliza
-        leilao['status'] = 'encerrado'
+        with db_lock: leilao['status'] = 'encerrado'
         print(f"Leilão {id_leilao} FINALIZADO.")
         publicar_evento('leilao.finalizado', {"id_leilao": leilao['id_leilao']})
 
     except Exception as e:
         print(f"Erro na thread do leilão {id_leilao}: {e}")
 
-# --- Endpoints ---
+# --- Endpoints REST ---
+
 @app.route('/leiloes', methods=['POST'])
 def criar_leilao():
     global proximo_id_leilao
     dados = request.json
 
     try:
-        # O replace('Z', '+00:00') garante compatibilidade com python < 3.11 se necessário
+        # Tratamento de fuso horário
         inicio_dt = datetime.fromisoformat(dados['inicio'].replace('Z', '+00:00'))
         fim_dt = datetime.fromisoformat(dados['fim'].replace('Z', '+00:00'))
 
@@ -94,40 +94,54 @@ def criar_leilao():
             "nome_produto": dados['nome_produto'],
             "descricao": dados['descricao'],
             "valor_inicial": float(dados['valor_inicial']),
+            "valor_atual": float(dados['valor_inicial']), # Inicializa igual ao inicial
             "inicio": inicio_dt,
             "fim": fim_dt,
             "status": "agendado"
         }
         
-        leiloes_db[novo_leilao['id_leilao']] = novo_leilao
-        proximo_id_leilao += 1
+        with db_lock:
+            leiloes_db[novo_leilao['id_leilao']] = novo_leilao
+            proximo_id_leilao += 1
         
-        # Inicia thread
         thread_leilao = threading.Thread(target=agendar_leilao, args=(novo_leilao['id_leilao'],))
         thread_leilao.start()
         
         return jsonify({"msg": "Leilão agendado", "id": novo_leilao['id_leilao']}), 201
         
     except Exception as e:
-        print(e)
         return jsonify({"erro": str(e)}), 400
 
 @app.route('/leiloes/ativos', methods=['GET'])
 def consultar_leiloes_ativos():
-    leiloes_ativos = []    
-    for leilao in leiloes_db.values():
-        if leilao['status'] == 'ativo':
-            leiloes_ativos.append({
-                "id_leilao": leilao['id_leilao'],
-                "nome_produto": leilao['nome_produto'],
-                "descricao": leilao['descricao'],
-                "valor_inicial": leilao['valor_inicial'],
-                "valor_atual": leilao.get('valor_inicial'),
-                "inicio": leilao['inicio'].isoformat(),
-                "fim": leilao['fim'].isoformat(),
-            })
-            
+    leiloes_ativos = []
+    with db_lock:
+        for leilao in leiloes_db.values():
+            if leilao['status'] == 'ativo':
+                leiloes_ativos.append({
+                    "id_leilao": leilao['id_leilao'],
+                    "nome_produto": leilao['nome_produto'],
+                    "descricao": leilao['descricao'],
+                    "valor_inicial": leilao['valor_inicial'],
+                    "valor_atual": leilao['valor_atual'], # Retorna o valor atualizado
+                    "inicio": leilao['inicio'].isoformat(),
+                    "fim": leilao['fim'].isoformat(),
+                })
     return jsonify(leiloes_ativos), 200
+
+# Novo Endpoint para receber atualização do Gateway
+@app.route('/leiloes/<int:id_leilao>', methods=['PATCH'])
+def atualizar_valor_leilao(id_leilao):
+    dados = request.json
+    novo_valor = dados.get('valor')
+    
+    with db_lock:
+        if id_leilao in leiloes_db:
+            leiloes_db[id_leilao]['valor_atual'] = float(novo_valor)
+            print(f" [REST] Valor do leilão {id_leilao} atualizado para R${novo_valor}")
+            return jsonify({"status": "atualizado"}), 200
+        else:
+            return jsonify({"erro": "leilao nao encontrado"}), 404
 
 if __name__ == '__main__':
     app.run(port=5001, debug=True, use_reloader=False)
