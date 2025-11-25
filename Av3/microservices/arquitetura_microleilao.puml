@@ -1,0 +1,61 @@
+@startuml
+title Arquitetura do Sistema de Leilão Distribuído (Final)
+skinparam componentStyle uml2
+
+' --- CLIENTE ---
+package "Cliente" {
+    [Frontend HTML/JS] as Front
+    note left of Front
+        HTML Puro + JS
+        EventSource (SSE)
+        Fetch API (REST)
+    end note
+}
+
+' --- INFRAESTRUTURA ---
+queue "RabbitMQ\n(Topic Exchange)" as MQ #Orange
+
+' --- BACKEND / MICROSSERVIÇOS ---
+package "Backend System" {
+    component "API Gateway\n(Python Flask)" as Gateway #LightBlue
+    
+    package "Microsserviços" {
+        component "MS Pagamento\n(Financeiro)" as MS_Pagamento
+        component "MS Leilão\n(Gestão)" as MS_Leilao
+        component "MS Lance\n(Lógica de Negócio)" as MS_Lance
+    }
+}
+
+' --- EXTERNO ---
+component "Simulador Pagamento\n(Externo)" as Simulador #LightGray
+
+' === RELACIONAMENTOS ===
+
+' 1. Frontend -> Gateway
+Front -> Gateway : HTTP REST (POST/GET)\n[Criação, Consulta, Lance]
+Gateway .up.> Front : HTTP SSE (Server-Sent Events)\n[Notificações em Tempo Real]
+
+' 2. Gateway -> Microservices (Proxy)
+Gateway --> MS_Leilao : HTTP POST/GET\n(Proxy de Leilões)
+Gateway --> MS_Lance : HTTP POST\n(Proxy de Lances + AutoFollow)
+
+' 3. Gateway -> MS Leilão (Atualização de Estado)
+Gateway -> MS_Leilao : HTTP PATCH\n(Atualiza Valor Atual após lance.validado)
+
+' 4. Mensageria (MS Leilão)
+MS_Leilao -down-> MQ : PUB [leilao.iniciado]\nPUB [leilao.finalizado]
+
+' 5. Mensageria (MS Lance)
+MS_Lance -down-> MQ : PUB [lance.validado]\nPUB [lance.invalidado]\nPUB [leilao.vencedor]
+MQ -up-> MS_Lance : SUB [leilao.*]
+
+' 6. Mensageria (Gateway Consumo)
+MQ -left-> Gateway : SUB [Todos os Eventos]\n(Para despachar via SSE)
+
+' 7. Fluxo de Pagamento
+MQ -right-> MS_Pagamento : SUB [leilao.vencedor]
+MS_Pagamento .up.-> Simulador : HTTP POST\n(Solicita Link)
+Simulador .left.> MS_Pagamento : HTTP POST (Webhook)\n(Confirma Status Async)
+MS_Pagamento -up-> MQ : PUB [link_pagamento]\nPUB [status_pagamento]
+
+@enduml
