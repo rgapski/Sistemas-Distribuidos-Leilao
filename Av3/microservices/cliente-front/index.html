@@ -105,11 +105,21 @@
         
         .card-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 
-        /* --- Log --- */
+        /* Log Terminal */
         .log-container {
-            background: #1e1e1e; color: #10b981; font-family: 'Consolas', monospace;
-            padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; font-size: 0.85rem; border: 1px solid #333;
+            background: #1e1e1e;
+            color: #10b981;
+            font-family: 'Consolas', 'Monaco', monospace;
+            padding: 15px;
+            border-radius: 8px;
+            height: 400px;
+            overflow-y: auto;       /* Mantém scroll vertical */
+            font-size: 0.85rem;
+            border: 1px solid #333;
+            word-break: break-all;  /* Força a quebra de links/JSON longos */
+            white-space: pre-wrap;  /* Mantém a formatação mas permite quebra */
         }
+
         .log-entry { margin-bottom: 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
         .log-time { color: #6b7280; font-size: 0.75rem; margin-right: 8px; }
         .log-type { color: #60a5fa; font-weight: bold; }

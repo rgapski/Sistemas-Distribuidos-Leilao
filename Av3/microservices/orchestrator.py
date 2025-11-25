@@ -54,11 +54,19 @@ def iniciar_servico(nome, arquivo, cor):
     pasta_do_servico = os.path.dirname(arquivo)
 
     # Inicia o processo
-    cmd = [sys.executable, arquivo]
+    cmd = [sys.executable, '-u', arquivo]
     
-    # --- MUDANÇA AQUI: cwd=pasta_do_servico ---
-    # Isso garante que o serviço rode "dentro" da pasta dele
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, cwd=pasta_do_servico)
+    env_vars = os.environ.copy()
+    env_vars["PYTHONIOENCODING"] = "utf-8"
+
+    p = subprocess.Popen(
+        cmd, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.STDOUT, 
+        bufsize=1, 
+        cwd=pasta_do_servico,
+        env=env_vars
+    )
     
     t = threading.Thread(target=ler_output, args=(nome, cor, p))
     t.daemon = True
