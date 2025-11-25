@@ -3,347 +3,361 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leilão - Sistemas Distribuídos</title>
+    <title>Leilão Distribuído | Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
-        h1, h2 { color: #333; }
-        .container { max-width: 1000px; margin: auto; }
-        .bloco { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .bloco-usuario { display: flex; gap: 10px; align-items: center; }
-        .bloco-leilao { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .log-eventos { max-height: 300px; overflow-y: auto; background: #222; color: #0f0; padding: 15px; border-radius: 5px; font-family: 'Courier New', Courier, monospace; }
-        .log-eventos div { border-bottom: 1px dashed #444; padding-bottom: 5px; margin-bottom: 5px; }
-        .leilao-card { border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
-        .leilao-card h3 { margin-top: 0; }
-        input[type="text"], input[type="datetime-local"], input[type="number"] { width: 95%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        button { background: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        button.secundario { background: #6c757d; }
-        button.secundario:hover { background: #5a6268; }
-        #status-sse { font-weight: bold; }
-        .log-tipo { color: #88F; font-weight: bold; }
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary: #64748b;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+        }
+
+        /* --- Header --- */
+        .header {
+            background: white;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand { font-size: 1.25rem; font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 10px; }
+
+        .connection-status {
+            display: flex; align-items: center; gap: 10px; font-size: 0.9rem;
+            background: #f1f5f9; padding: 5px 15px; border-radius: 20px;
+        }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background-color: var(--secondary); }
+        .status-dot.connected { background-color: var(--success); box-shadow: 0 0 5px var(--success); }
+        .status-dot.error { background-color: var(--danger); }
+
+        /* --- Layout --- */
+        .container {
+            max-width: 1200px; margin: 2rem auto; padding: 0 1rem;
+            display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;
+        }
+
+        .panel {
+            background: var(--card-bg); border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); padding: 1.5rem;
+            margin-bottom: 2rem; border: 1px solid var(--border);
+        }
+        .panel h2 { margin-top: 0; font-size: 1.1rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; margin-bottom: 20px; }
+
+        /* --- Form Elements --- */
+        .form-group { margin-bottom: 1rem; }
+        .form-row { display: flex; gap: 10px; }
+        label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; }
+        input {
+            width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+            font-size: 0.95rem; box-sizing: border-box;
+        }
+        button {
+            background-color: var(--primary); color: white; border: none; padding: 10px 20px;
+            border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s;
+        }
+        button:hover { background-color: var(--primary-dark); }
+        button.outline { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
+        button.outline:hover { border-color: var(--primary); color: var(--primary); }
+        button.full { width: 100%; }
+        
+        button.btn-follow { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.8rem; padding: 5px 10px; }
+        button.btn-follow:hover { background: #bae6fd; }
+        button.btn-unfollow { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; font-size: 0.8rem; padding: 5px 10px; }
+
+        /* --- Leilão Card --- */
+        .leiloes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
+        .leilao-card {
+            border: 1px solid var(--border); border-radius: 8px; padding: 15px; background: #fff;
+            transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column;
+        }
+        .leilao-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        
+        .leilao-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px; }
+        .leilao-title { font-weight: 700; font-size: 1.1rem; color: var(--text-main); }
+        .leilao-id { font-size: 0.75rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; color: var(--text-muted); }
+        .leilao-price { font-size: 1.5rem; font-weight: 800; color: var(--success); margin: 10px 0; }
+        .leilao-timer { font-size: 0.85rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+
+        .lance-area { margin-top: auto; padding-top: 15px; border-top: 1px dashed var(--border); }
+        .lance-input-group { display: flex; gap: 5px; margin-bottom: 10px; }
+        .lance-input-group input { flex: 1; }
+        
+        .card-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+
+        /* --- Log --- */
+        .log-container {
+            background: #1e1e1e; color: #10b981; font-family: 'Consolas', monospace;
+            padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; font-size: 0.85rem; border: 1px solid #333;
+        }
+        .log-entry { margin-bottom: 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        .log-time { color: #6b7280; font-size: 0.75rem; margin-right: 8px; }
+        .log-type { color: #60a5fa; font-weight: bold; }
+        .log-highlight { color: #facc15; }
+
+        @media (max-width: 768px) { .container { grid-template-columns: 1fr; } .form-row { flex-direction: column; } }
     </style>
 </head>
 <body>
 
+    <header class="header">
+        <div class="brand">Leilão Distribuído</div>
+        <div class="connection-status">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text">Desconectado</span>
+        </div>
+    </header>
+
     <div class="container">
-        <h1>Sistema de Leilão (SSE + REST)</h1>
-
-        <div class="bloco bloco-usuario">
-            <input type="text" id="id_usuario" placeholder="Seu ID de Usuário (ex: user1, user2)">
-            <button id="btnConectar">Conectar como Usuário</button>
-            <div>Status SSE: <span id="status-sse" style="color:red;">Desconectado</span></div>
-        </div>
-
-        <div class="bloco">
-            <h2>Criar Novo Leilão </h2>
-            <form id="formCriarLeilao">
-                <input type="text" id="nome_produto" placeholder="Nome do Produto" required>
-                <input type="text" id="descricao" placeholder="Descrição" required>
-                <input type="number" id="valor_inicial" placeholder="Valor Inicial (ex: 100.00)" step="0.01" required>
-                <p>
-                    Início: <input type="datetime-local" id="data_inicio" required>
-                    Fim: <input type="datetime-local" id="data_fim" required>
-                </p>
-                <button type="submit">Criar Leilão</button>
-            </form>
-        </div>
-
-        <div class="bloco">
-            <h2>Leilões Ativos </h2>
-            <button id="btnAtualizarLeiloes">Atualizar Lista</button>
-            <div id="leiloes-ativos" style="margin-top: 20px;">
+        <main>
+            <section class="panel">
+                <h2>1. Autenticação</h2>
+                <div class="form-row" style="align-items: flex-end;">
+                    <div style="flex: 1;">
+                        <label>ID do Usuário</label>
+                        <input type="text" id="id_usuario" placeholder="Ex: user_123">
+                    </div>
+                    <button id="btnConectar">Conectar</button>
                 </div>
-        </div>
-        
-        <div class="bloco">
-            <h2>Log de Eventos (Recebidos via SSE) [cite: 25]</h2>
-            <div id="log-eventos" class="log-eventos">
-                Aguardando eventos...
+            </section>
+
+            <section class="panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin:0; border:none;">Leilões Ativos</h2>
+                    <button class="outline" id="btnAtualizarLeiloes">↻ Atualizar</button>
+                </div>
+                <div id="leiloes-ativos" class="leiloes-grid">
+                    <div style="color: var(--text-muted); text-align: center; grid-column: 1/-1; padding: 20px;">
+                        Carregando...
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Administração: Criar Leilão</h2>
+                <form id="formCriarLeilao">
+                    <div class="form-group"><label>Produto</label><input type="text" id="nome_produto" required></div>
+                    <div class="form-group"><label>Descrição</label><input type="text" id="descricao" required></div>
+                    <div class="form-row">
+                        <div style="flex: 1;"><label>Valor Inicial (R$)</label><input type="number" id="valor_inicial" step="0.01" required></div>
+                        <div style="flex: 1;"><label>Início</label><input type="datetime-local" id="data_inicio" required></div>
+                        <div style="flex: 1;"><label>Fim</label><input type="datetime-local" id="data_fim" required></div>
+                    </div>
+                    <button type="submit" class="full" style="margin-top: 15px;">Agendar Leilão</button>
+                </form>
+            </section>
+        </main>
+
+        <aside>
+            <div class="panel" style="height: calc(100% - 2rem); display: flex; flex-direction: column;">
+                <h2>Event Log (SSE)</h2>
+                <div id="log-eventos" class="log-container">
+                    <div class="log-entry">> Aguardando conexão...</div>
+                </div>
             </div>
-        </div>
+        </aside>
     </div>
 
     <script>
-        // URL base do nosso API Gateway
-        const API_URL = 'http://localhost:5000';
-        
-        // Estado global
+        // CONFIG
+        const API_URL = 'http://127.0.0.1:5000';
         let idUsuarioGlobal = null;
         let eventSource = null;
 
-        // Elementos do DOM
-        const statusSSE = document.getElementById('status-sse');
-        const logEventos = document.getElementById('log-eventos');
-        const divLeiloesAtivos = document.getElementById('leiloes-ativos');
+        // UI Helpers
+        const adicionarLog = (tipo, dados) => {
+            const time = new Date().toLocaleTimeString();
+            const jsonStr = JSON.stringify(dados);
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-type">${tipo}</span> ${jsonStr}`;
+            document.getElementById('log-eventos').prepend(entry);
+        };
 
-        /**
-         * Adiciona uma mensagem ao log de eventos
-         */
-        function adicionarLog(tipo, dados) {
-            if (logEventos.innerHTML === 'Aguardando eventos...') {
-                logEventos.innerHTML = '';
-            }
-            const dadosStr = JSON.stringify(dados);
-            logEventos.innerHTML = `<div><span class="log-tipo">[${tipo}]</span> ${dadosStr}</div>` + logEventos.innerHTML;
-        }
+        Date.prototype.addSeconds = function(s) { var d = new Date(this); d.setSeconds(this.getSeconds() + s); return d; }
 
-        /**
-         * Conecta ao endpoint SSE do Gateway
-         */
+        // --- SSE ---
         function conectarSSE(idUsuario) {
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            // Inicia a conexão EventSource
+            if (eventSource) eventSource.close();
             eventSource = new EventSource(`${API_URL}/eventos?id_usuario=${idUsuario}`);
             idUsuarioGlobal = idUsuario;
 
             eventSource.onopen = () => {
-                statusSSE.textContent = 'Conectado';
-                statusSSE.style.color = 'green';
-                adicionarLog('SSE', { status: 'Conexão estabelecida', usuario: idUsuario });
+                document.getElementById('status-dot').className = 'status-dot connected';
+                document.getElementById('status-text').textContent = `Conectado: ${idUsuario}`;
+                adicionarLog('SYSTEM', { msg: 'Conexão SSE OK' });
             };
-
             eventSource.onerror = () => {
-                statusSSE.textContent = 'Erro (reconectando...)';
-                statusSSE.style.color = 'orange';
+                document.getElementById('status-dot').className = 'status-dot error';
+                document.getElementById('status-text').textContent = 'Erro de Conexão';
             };
 
-            // --- Listeners para eventos customizados (Passo 9) ---
-
-            // [cite: 26]
+            // Handlers
             eventSource.addEventListener('novo_lance', (e) => {
                 const dados = JSON.parse(e.data);
-                adicionarLog('novo_lance', dados);
-                // Atualiza o valor na UI do leilão
-                const elValor = document.getElementById(`valor-leilao-${dados.id_leilao}`);
-                if (elValor) {
-                    elValor.textContent = `R$ ${dados.valor.toFixed(2)}`;
-                }
+                adicionarLog('LANCE', dados);
+                const el = document.getElementById(`valor-leilao-${dados.id_leilao}`);
+                if (el) { el.innerText = `R$ ${dados.valor.toFixed(2)}`; el.style.color = '#eab308'; setTimeout(()=>el.style.color='#22c55e', 500); }
             });
-
-            // [cite: 27]
             eventSource.addEventListener('vencedor_leilao', (e) => {
                 const dados = JSON.parse(e.data);
-                adicionarLog('vencedor_leilao', dados);
-                // Remove o card do leilão
+                adicionarLog('VENCEDOR', dados);
                 const card = document.getElementById(`card-leilao-${dados.id_leilao}`);
                 if (card) {
-                    card.innerHTML = `<h3>Leilão ${dados.id_leilao} Finalizado!</h3><p>Vencedor: ${dados.id_vencedor} por R$ ${dados.valor.toFixed(2)}</p>`;
-                    card.style.backgroundColor = '#f0fff0';
+                    card.style.background = '#f0fdf4';
+                    card.innerHTML = `<div style="text-align:center; padding:20px;"><h3 style="color:#15803d">🏆 Finalizado</h3><p>Vencedor: ${dados.id_vencedor}</p><p style="font-size:1.5rem">R$ ${dados.valor.toFixed(2)}</p></div>`;
                 }
             });
-            
-            // [cite: 28, 30]
             eventSource.addEventListener('link_pagamento', (e) => {
                 const dados = JSON.parse(e.data);
-                adicionarLog('link_pagamento', dados);
-                // Adiciona o link de pagamento ao log
-                adicionarLog('AÇÃO REQUERIDA', { 
-                    mensagem: `Você venceu! Pague agora`,
-                    link: dados.link_pagamento 
-                });
-                alert(`Você venceu o leilão ${dados.id_leilao}! Link de pagamento: ${dados.link_pagamento}`);
+                adicionarLog('PAGAMENTO', dados);
+                if(confirm(`Você venceu o Leilão ${dados.id_leilao}! Pagar agora?`)) console.log("Clicou pagar");
             });
-            
-            // [cite: 29]
             eventSource.addEventListener('status_pagamento', (e) => {
                 const dados = JSON.parse(e.data);
-                adicionarLog('status_pagamento', dados);
-                alert(`Pagamento do leilão ${dados.id_leilao}: ${dados.status}`);
+                adicionarLog('STATUS', dados);
+                alert(`Pagamento Leilão ${dados.id_leilao}: ${dados.status}`);
             });
-
             eventSource.addEventListener('lance_invalido', (e) => {
                 const dados = JSON.parse(e.data);
-                adicionarLog('lance_invalido', dados);
-                alert(`Seu lance no leilão ${dados.id_leilao} foi inválido!`);
+                adicionarLog('ERRO', dados);
+                alert(`Lance rejeitado no leilão ${dados.id_leilao}. Verifique se o leilão já começou.`);
             });
         }
 
-        /**
-         * Busca e renderiza os leilões ativos (REST) 
-         */
+        // --- REST ---
         async function buscarLeiloes() {
             try {
-                const response = await fetch(`${API_URL}/leiloes`);
-                if (!response.ok) throw new Error('Falha ao buscar leilões');
-                
-                const leiloes = await response.json();
-                divLeiloesAtivos.innerHTML = ''; // Limpa a lista
-                
+                const res = await fetch(`${API_URL}/leiloes`);
+                const leiloes = await res.json();
+                const div = document.getElementById('leiloes-ativos');
+                div.innerHTML = '';
+
                 if (leiloes.length === 0) {
-                    divLeiloesAtivos.innerHTML = '<p>Nenhum leilão ativo no momento.</p>';
+                    div.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:20px; color:#666">Nenhum leilão ativo. Crie um e aguarde o horário de início.</div>';
+                    return;
                 }
 
-                leiloes.forEach(leilao => {
-                    divLeiloesAtivos.innerHTML += `
-                        <div class="leilao-card" id="card-leilao-${leilao.id_leilao}">
-                            <h3>${leilao.nome_produto} (ID: ${leilao.id_leilao})</h3>
-                            <p>${leilao.descricao}</p>
-                            <p>Valor Atual: <strong id="valor-leilao-${leilao.id_leilao}">R$ ${leilao.valor_atual.toFixed(2)}</strong></p>
-                            <p>Termina em: ${new Date(leilao.fim).toLocaleString()}</p>
-                            
-                            <div style="display:flex; gap:10px; margin-top:10px;">
-                                <input type="number" id="lance-valor-${leilao.id_leilao}" placeholder="Seu lance" step="0.01">
-                                <button onclick="efetuarLance(${leilao.id_leilao})">Fazer Lance </button>
+                leiloes.forEach(l => {
+                    const fim = new Date(l.fim).toLocaleTimeString();
+                    div.innerHTML += `
+                        <div class="leilao-card" id="card-leilao-${l.id_leilao}">
+                            <div class="leilao-header">
+                                <span class="leilao-title">${l.nome_produto}</span>
+                                <span class="leilao-id">#${l.id_leilao}</span>
                             </div>
+                            <div style="font-size:0.9rem; color:#64748b; margin-bottom:10px;">${l.descricao}</div>
+                            <div class="leilao-timer">⏳ Encerra às ${fim}</div>
+                            <div class="leilao-price" id="valor-leilao-${l.id_leilao}">R$ ${l.valor_atual.toFixed(2)}</div>
                             
-                            <div style="margin-top:10px;">
-                                <button onclick="registrarInteresse(${leilao.id_leilao})" class="secundario">Seguir Leilão </button>
-                                <button onclick="cancelarInteresse(${leilao.id_leilao})" class="secundario">Deixar de Seguir [cite: 24]</button>
+                            <div class="lance-area">
+                                <div class="lance-input-group">
+                                    <input type="number" id="lance-valor-${l.id_leilao}" placeholder="Valor..." step="0.01">
+                                    <button onclick="efetuarLance(${l.id_leilao})">LANCE</button>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn-follow" onclick="seguir(${l.id_leilao})">🔔 Seguir</button>
+                                    <button class="btn-unfollow" onclick="desseguir(${l.id_leilao})">🔕 Desseguir</button>
+                                </div>
                             </div>
                         </div>
                     `;
                 });
-            } catch (error) {
-                console.error(error);
-                divLeiloesAtivos.innerHTML = `<p style="color:red;">${error.message}</p>`;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('leiloes-ativos').innerHTML = `<div style="color:red">Erro ao conectar ao Gateway (127.0.0.1:5000)</div>`;
             }
         }
-        
-        /**
-         * Registra interesse em um leilão (REST) 
-         */
-        async function registrarInteresse(idLeilao) {
-            if (!idUsuarioGlobal) {
-                alert('Você precisa estar conectado (Defina seu ID de Usuário)');
-                return;
-            }
+
+        async function efetuarLance(id) {
+            if (!idUsuarioGlobal) return alert('Conecte-se primeiro!');
+            const valor = parseFloat(document.getElementById(`lance-valor-${id}`).value);
+            if (!valor) return alert('Valor inválido');
+
             try {
-                const response = await fetch(`${API_URL}/notificacoes/registrar`, {
+                const res = await fetch(`${API_URL}/lance`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id_usuario: idUsuarioGlobal, id_leilao: idLeilao })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id_leilao: id, id_usuario: idUsuarioGlobal, valor: valor})
                 });
-                if (!response.ok) throw new Error('Falha ao registrar interesse');
-                alert(`Interesse registrado no leilão ${idLeilao}!`);
-            } catch (error) {
-                console.error(error);
-                alert(error.message);
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.erro || 'Erro no lance');
+                adicionarLog('ENVIADO', {leilao: id, valor: valor});
+                document.getElementById(`lance-valor-${id}`).value = '';
+            } catch (e) {
+                alert(e.message);
+                adicionarLog('FALHA_LANCE', {msg: e.message});
             }
         }
 
-        /**
-         * Cancela interesse em um leilão (REST) [cite: 24]
-         */
-        async function cancelarInteresse(idLeilao) {
-            if (!idUsuarioGlobal) return;
-            try {
-                await fetch(`${API_URL}/notificacoes/cancelar`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id_usuario: idUsuarioGlobal, id_leilao: idLeilao })
-                });
-                alert(`Interesse removido do leilão ${idLeilao}.`);
-            } catch (error) {
-                console.error(error);
-            }
+        async function seguir(id) {
+            if (!idUsuarioGlobal) return alert('Conecte-se primeiro!');
+            await fetch(`${API_URL}/notificacoes/registrar`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id_leilao: id, id_usuario: idUsuarioGlobal})
+            });
+            alert(`Seguindo leilão ${id}`);
         }
 
-        /**
-         * Efetua um lance (REST) 
-         */
-        async function efetuarLance(idLeilao) {
-            if (!idUsuarioGlobal) {
-                alert('Você precisa estar conectado (Defina seu ID de Usuário)');
-                return;
-            }
-            const valorLance = document.getElementById(`lance-valor-${idLeilao}`).value;
-            if (!valorLance) {
-                alert('Digite um valor para o lance.');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${API_URL}/lance`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id_leilao: idLeilao,
-                        id_usuario: idUsuarioGlobal,
-                        valor: parseFloat(valorLance)
-                    })
-                });
-                
-                const resultado = await response.json();
-                
-                if (!response.ok) {
-                    // O Gateway repassa o erro do MS-Lance (ex: valor baixo)
-                    throw new Error(resultado.erro || 'Falha ao fazer lance');
-                }
-                
-                alert('Lance enviado com sucesso!');
-                document.getElementById(`lance-valor-${idLeilao}`).value = ''; // Limpa o campo
-            } catch (error) {
-                console.error(error);
-                alert(`Erro no lance: ${error.message}`);
-            }
+        async function desseguir(id) {
+            if (!idUsuarioGlobal) return alert('Conecte-se primeiro!');
+            await fetch(`${API_URL}/notificacoes/cancelar`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id_leilao: id, id_usuario: idUsuarioGlobal})
+            });
+            alert(`Deixou de seguir leilão ${id}`);
         }
 
-
-        // --- Event Listeners Iniciais ---
-
-        // Conectar SSE
+        // Listeners
         document.getElementById('btnConectar').onclick = () => {
-            const idUsuario = document.getElementById('id_usuario').value;
-            if (idUsuario) {
-                conectarSSE(idUsuario);
-            } else {
-                alert('Por favor, insira um ID de Usuário.');
-            }
+            const u = document.getElementById('id_usuario').value;
+            if(u) conectarSSE(u); else alert('Digite ID');
         };
-
-        // Buscar Leilões
         document.getElementById('btnAtualizarLeiloes').onclick = buscarLeiloes;
-
-        // Criar Leilão (REST) 
         document.getElementById('formCriarLeilao').onsubmit = async (e) => {
             e.preventDefault();
-            const agora = new Date();
-            const inicio = new Date(document.getElementById('data_inicio').value);
+            const now = new Date();
+            const ini = new Date(document.getElementById('data_inicio').value);
             const fim = new Date(document.getElementById('data_fim').value);
+            // Garante delay seguro para dar tempo do backend processar
+            const safeIni = (ini < now ? now.addSeconds(5) : ini).toISOString();
+            const safeFim = (fim < ini ? ini.addSeconds(60) : fim).toISOString();
             
-            // Adiciona 10 segundos de buffer para o agendamento no backend
-            const inicioISO = (inicio < agora ? agora.addSeconds(10) : inicio).toISOString();
-            const fimISO = (fim < inicio ? inicio.addSeconds(60) : fim).toISOString();
-
-            const dadosLeilao = {
-                nome_produto: document.getElementById('nome_produto').value,
-                descricao: document.getElementById('descricao').value,
-                valor_inicial: parseFloat(document.getElementById('valor_inicial').value),
-                inicio: inicioISO,
-                fim: fimISO
-            };
-            
-            try {
-                const response = await fetch(`${API_URL}/leiloes`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dadosLeilao)
-                });
-                if (!response.ok) throw new Error('Falha ao criar leilão');
-                
-                alert('Leilão criado e agendado com sucesso!');
-                e.target.reset(); // Limpa o formulário
-                buscarLeiloes(); // Atualiza a lista
-            } catch (error) {
-                console.error(error);
-                alert(error.message);
-            }
+            await fetch(`${API_URL}/leiloes`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    nome_produto: document.getElementById('nome_produto').value,
+                    descricao: document.getElementById('descricao').value,
+                    valor_inicial: parseFloat(document.getElementById('valor_inicial').value),
+                    inicio: safeIni, fim: safeFim
+                })
+            });
+            alert('Leilão Agendado! Aguarde o horário de início para dar lances.');
+            e.target.reset();
+            buscarLeiloes();
         };
 
-        // Helper para datas
-        Date.prototype.addSeconds = function(s) {
-            var d = new Date(this);
-            d.setSeconds(this.getSeconds() + s);
-            return d;
-        }
-
-        // Carrega os leilões ao iniciar
         buscarLeiloes();
-
     </script>
 </body>
 </html>
