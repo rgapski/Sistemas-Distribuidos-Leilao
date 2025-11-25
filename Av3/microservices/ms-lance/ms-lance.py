@@ -11,7 +11,7 @@ RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
 # BINDING_KEYS agora escuta apenas o ciclo de vida do leilão
-BINDING_KEYS = ['leilao.iniciado', 'leilao.finalizado'] # [cite: 63]
+BINDING_KEYS = ['leilao.iniciado', 'leilao.finalizado'] 
 
 # --- Configuração do Flask ---
 app = Flask(__name__)
@@ -63,25 +63,25 @@ def efetuar_lance(): #
         leilao_info = leiloes_ativos.get(leilao_id)
 
         # Validação 1: Leilão existe e está ativo?
-        if not leilao_info or leilao_info['status'] != 'ativo': # [cite: 65]
+        if not leilao_info or leilao_info['status'] != 'ativo': 
             print(f"  --> Lance Inválido: Leilão {leilao_id} não está ativo.")
             publicar_evento('lance.invalidado', dados) # 
             return jsonify({"erro": "Leilão não está ativo"}), 400
 
         # Validação 2: Valor do lance é maior?
         maior_lance_atual = leilao_info.get('maior_lance', 0)
-        if valor_lance <= maior_lance_atual: # [cite: 65]
+        if valor_lance <= maior_lance_atual: 
             print(f"  --> Lance Inválido: Valor R${valor_lance} não é maior que R${maior_lance_atual}.")
             publicar_evento('lance.invalidado', dados) # 
             return jsonify({"erro": f"Valor do lance deve ser maior que R${maior_lance_atual}"}), 400
         
         # Lance Válido!
-        print(f"  [✓] Lance VÁLIDO de {usuario_id} no valor de R${valor_lance}.")
+        print(f"  [X] Lance VÁLIDO de {usuario_id} no valor de R${valor_lance}.")
         leilao_info['maior_lance'] = valor_lance
         leilao_info['vencedor'] = usuario_id
         
         # Publica o evento de lance validado
-        publicar_evento('lance.validado', dados) # [cite: 66]
+        publicar_evento('lance.validado', dados) 
 
     return jsonify({"status": "Lance aceito"}), 200
 
@@ -115,11 +115,10 @@ def processar_leilao_finalizado(leilao):
                 print(f"  - Vencedor: {vencedor} com R${valor:.2f}")
                 evento_vencedor = {
                     "id_leilao": leilao_id, 
-                    "id_vencedor": vencedor, # [cite: 68]
-                    "valor": valor # [cite: 68]
+                    "id_vencedor": vencedor, 
+                    "valor": valor 
                 }
-                publicar_evento('leilao.vencedor', evento_vencedor) # [cite: 68]
-            else:
+                publicar_evento('leilao.vencedor', evento_vencedor)
                 print("  - Leilão terminou sem lances/vencedor.")
 
 def callback_geral(ch, method, properties, body):

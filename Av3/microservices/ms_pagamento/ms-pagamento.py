@@ -47,7 +47,7 @@ def publicar_evento(routing_key: str, evento: dict):
 @app.route('/webhook/status', methods=['POST'])
 def receber_webhook_status():
     """
-    [cite_start]Recebe a notificação (webhook) do sistema de pagamento externo[cite: 74, 79].
+    Recebe a notificação (webhook) do sistema de pagamento externo.
     """
     dados_webhook = request.json
     print(f"\n[WEBHOOK] Recebido status: '{dados_webhook.get('status')}' para transação {dados_webhook.get('id_transacao')}")
@@ -56,11 +56,11 @@ def receber_webhook_status():
     evento_status = {
         "id_leilao": dados_webhook.get('id_leilao'),
         "id_comprador": dados_webhook.get('id_comprador'),
-        "status": dados_webhook.get('status'), # 'aprovado' ou 'recusado' [cite: 75, 80]
+        "status": dados_webhook.get('status'), # 'aprovado' ou 'recusado' 
         "valor": dados_webhook.get('valor')
     }
     
-    # [cite_start]Publica o evento status_pagamento [cite: 75]
+    # Publica o evento status_pagamento 
     publicar_evento('status_pagamento', evento_status)
     
     return jsonify({"status": "webhook recebido"}), 200
@@ -69,7 +69,7 @@ def receber_webhook_status():
 
 def processar_leilao_vencedor(vencedor_info):
     """
-    [cite_start]Chamado quando um evento 'leilao.vencedor' é consumido[cite: 70].
+    Chamado quando um evento 'leilao.vencedor' é consumido.
     """
     id_leilao = vencedor_info.get('id_leilao')
     print(f"\n[SUB] Recebido 'leilao.vencedor' para o leilão {id_leilao}")
@@ -77,25 +77,25 @@ def processar_leilao_vencedor(vencedor_info):
     # Prepara os dados para enviar ao sistema de pagamento
     dados_pagamento = {
         "id_leilao": id_leilao,
-        "id_vencedor": vencedor_info.get('id_vencedor'), # O PDF chama de 'ID do vencedor' [cite: 70]
-        "valor": vencedor_info.get('valor'), # [cite: 70, 72]
-        "moeda": "BRL", # [cite: 72]
-        "informacoes_cliente": f"Cliente ID {vencedor_info.get('id_vencedor')}" # [cite: 72]
+        "id_vencedor": vencedor_info.get('id_vencedor'), # O PDF chama de 'ID do vencedor' 
+        "valor": vencedor_info.get('valor'), 
+        "moeda": "BRL", 
+        "informacoes_cliente": f"Cliente ID {vencedor_info.get('id_vencedor')}" 
     }
     
     try:
-        # [cite_start]1. Faz a requisição REST ao sistema externo [cite: 72]
+        # 1. Faz a requisição REST ao sistema externo 
         print(f"  ... Enviando requisição REST para Simulador em {SIMULADOR_URL}")
         response = requests.post(SIMULADOR_URL, json=dados_pagamento)
         response.raise_for_status() # Lança exceção se for erro HTTP (4xx ou 5xx)
         
-        # [cite_start]2. Recebe o link de pagamento [cite: 73, 78]
+        # 2. Recebe o link de pagamento 
         resposta_json = response.json()
         link_pagamento = resposta_json.get('link_pagamento')
         
         print(f"  ... Simulador retornou link: {link_pagamento}")
         
-        # [cite_start]3. Publica o evento link_pagamento [cite: 73]
+        # 3. Publica o evento link_pagamento 
         evento_link = {
             "id_leilao": id_leilao,
             "id_vencedor": vencedor_info.get('id_vencedor'),
@@ -129,7 +129,7 @@ def iniciar_consumidor_rabbitmq():
         result = channel.queue_declare(queue='', exclusive=True)
         queue_name = result.method.queue
 
-        # [cite_start]Este MS só precisa escutar por 'leilao.vencedor' [cite: 70]
+        # Este MS só precisa escutar por 'leilao.vencedor' 
         BINDING_KEYS = ['leilao.vencedor'] 
         
         for key in BINDING_KEYS:
