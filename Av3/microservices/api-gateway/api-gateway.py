@@ -1,4 +1,4 @@
-# /microservices/api_gateway/api-gateway.py
+# /microservices/api-gateway/api-gateway.py
 
 import pika
 import json

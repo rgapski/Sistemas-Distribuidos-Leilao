@@ -1,4 +1,4 @@
-# /microservices/ms_leilao/ms-leilao.py
+# /microservices/ms-leilao/ms-leilao.py
 
 import pika
 import json

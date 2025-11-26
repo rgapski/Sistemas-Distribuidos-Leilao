@@ -1,4 +1,4 @@
-# /microservices/ms_pagamento/ms-pagamento.py
+# /microservices/ms-pagamento/ms-pagamento.py
 
 import pika
 import json

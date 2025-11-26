@@ -1,4 +1,4 @@
-# /microservices/ms_lance/main.py
+# /microservices/ms-lance/ms-lance.py
 
 import pika
 import json

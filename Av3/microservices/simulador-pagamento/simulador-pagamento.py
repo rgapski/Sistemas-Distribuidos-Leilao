@@ -1,4 +1,4 @@
-# /simulador_pagamento/simulador_pagamento.py
+# /microservices/simulador-pagamento/simulador-pagamento.py
 
 import time
 import requests
