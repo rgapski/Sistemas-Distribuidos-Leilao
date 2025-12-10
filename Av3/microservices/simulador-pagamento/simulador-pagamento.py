@@ -14,19 +14,16 @@ WEBHOOK_URL = "http://127.0.0.1:5003/webhook/status" # Assumindo que o MS Pagame
 proximo_id_transacao = 1000
 
 def enviar_webhook_assincrono(dados_webhook):
-    """
-    Esta função roda em uma thread separada para simular
-    o processamento assíncrono e enviar o webhook.
-    """
+
     global proximo_id_transacao
     
     print(f"[Simulador] Processando transação {dados_webhook['id_transacao']}...")
     
     # 1. Simula o tempo de processamento do pagamento (ex: 5 segundos)
-    time.sleep(5) 
+    time.sleep(15) 
+    
     
     # 2. Decide aleatoriamente se o pagamento foi aprovado ou recusado
-    # Neste exemplo, vamos aprovar por padrão para facilitar o teste.
     dados_webhook["status"] = "aprovado" #
     
     print(f"[Simulador] Pagamento {dados_webhook['id_transacao']} {dados_webhook['status']}. Enviando webhook para {WEBHOOK_URL}...")
@@ -42,10 +39,7 @@ def enviar_webhook_assincrono(dados_webhook):
 
 @app.route('/iniciar_pagamento', methods=['POST'])
 def iniciar_pagamento():
-    """
-    Recebe uma requisição REST do MS Pagamento para criar uma transação.
-    Retorna imediatamente um link de pagamento.
-    """
+
     global proximo_id_transacao
     dados = request.json # Deve conter 'valor', 'id_vencedor', 'id_leilao'
     

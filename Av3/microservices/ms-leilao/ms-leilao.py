@@ -13,6 +13,8 @@ RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
 
+#Publica 2 eventos: leilao.iniciado e leilao.finalizado
+
 app = Flask(__name__)
 
 # --- Banco em Memória ---
@@ -56,7 +58,7 @@ def agendar_leilao(id_leilao):
         # 1. Espera iniciar
         tempo_para_iniciar = (leilao['inicio'] - agora).total_seconds()
         if tempo_para_iniciar > 0:
-            time.sleep(tempo_para_iniciar)
+            time.sleep(tempo_para_iniciar) # dorme até o início do leilão
         
         # 2. Inicia
         with db_lock: leilao['status'] = 'ativo'

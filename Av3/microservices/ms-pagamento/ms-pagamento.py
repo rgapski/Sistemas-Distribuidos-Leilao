@@ -11,6 +11,7 @@ RABBITMQ_HOST = '127.0.0.1'
 RABBITMQ_USER = 'user'
 RABBITMQ_PASS = 'password'
 EXCHANGE_NAME = 'leilao_topic_exchange'
+BINDING_KEYS = ['leilao.vencedor'] # Este MS só precisa escutar por 'leilao.vencedor' 
 
 # URL do simulador que CRIAMOS no passo 4
 SIMULADOR_URL = "http://127.0.0.1:5004/iniciar_pagamento" 
@@ -21,10 +22,7 @@ app = Flask(__name__)
 # --- Lógica de Publicação (Thread-safe) ---
 
 def publicar_evento(routing_key: str, evento: dict):
-    """
-    Publica um evento na exchange principal (Thread-safe).
-    Cria uma nova conexão para cada publicação.
-    """
+
     try:
         credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
@@ -46,9 +44,7 @@ def publicar_evento(routing_key: str, evento: dict):
 
 @app.route('/webhook/status', methods=['POST'])
 def receber_webhook_status():
-    """
-    Recebe a notificação (webhook) do sistema de pagamento externo.
-    """
+
     dados_webhook = request.json
     print(f"\n[WEBHOOK] Recebido status: '{dados_webhook.get('status')}' para transação {dados_webhook.get('id_transacao')}")
     
@@ -68,9 +64,7 @@ def receber_webhook_status():
 # --- Funções de Consumo RabbitMQ ---
 
 def processar_leilao_vencedor(vencedor_info):
-    """
-    Chamado quando um evento 'leilao.vencedor' é consumido.
-    """
+
     id_leilao = vencedor_info.get('id_leilao')
     print(f"\n[SUB] Recebido 'leilao.vencedor' para o leilão {id_leilao}")
     
@@ -108,7 +102,7 @@ def processar_leilao_vencedor(vencedor_info):
     except Exception as e:
         print(f"  [!] ERRO ao processar vencedor do leilão: {e}")
 
-def callback_geral(ch, method, properties, body):
+def callback_geral(ch, method, body):
     routing_key = method.routing_key
     mensagem = json.loads(body.decode())
     
@@ -118,7 +112,6 @@ def callback_geral(ch, method, properties, body):
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def iniciar_consumidor_rabbitmq():
-    """Roda em uma thread separada para consumir eventos do RabbitMQ."""
     print("[*] Iniciando thread de consumo RabbitMQ...")
     try:
         credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
@@ -129,9 +122,6 @@ def iniciar_consumidor_rabbitmq():
         result = channel.queue_declare(queue='', exclusive=True)
         queue_name = result.method.queue
 
-        # Este MS só precisa escutar por 'leilao.vencedor' 
-        BINDING_KEYS = ['leilao.vencedor'] 
-        
         for key in BINDING_KEYS:
             channel.queue_bind(exchange=EXCHANGE_NAME, queue=queue_name, routing_key=key)
         
